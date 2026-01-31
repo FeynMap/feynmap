@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import type { ChatNodeData } from "../components/ChatNode";
+import type { SessionProfile } from "../types/sessionProfile";
 
 interface Message {
   role: "user" | "assistant";
@@ -19,6 +20,7 @@ interface UseChatOptions {
   edges: Edge[];
   setNodes: React.Dispatch<React.SetStateAction<ChatFlowNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  sessionProfile?: SessionProfile | null;
 }
 
 // Parse sub-concepts from streaming text
@@ -46,7 +48,13 @@ function generateNodeId(): string {
   return `node-${Date.now()}-${++nodeIdCounter}`;
 }
 
-export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
+export function useChat({
+  nodes,
+  edges,
+  setNodes,
+  setEdges,
+  sessionProfile = null,
+}: UseChatOptions) {
   // Build conversation history by traversing up the tree from a given node
   const buildConversationHistory = useCallback(
     (nodeId: string): Message[] => {
@@ -97,6 +105,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
           body: JSON.stringify({
             prompt,
             conversationHistory,
+            sessionProfile: sessionProfile ?? undefined,
           }),
         });
 
@@ -239,7 +248,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
         );
       }
     },
-    [edges, buildConversationHistory, setNodes, setEdges]
+    [edges, buildConversationHistory, setNodes, setEdges, sessionProfile]
   );
 
   return { sendMessage, buildConversationHistory };

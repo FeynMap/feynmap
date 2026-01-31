@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { Route } from "./+types/api.chat";
+import type { SessionProfile } from "../types/sessionProfile";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -13,7 +14,11 @@ interface Message {
 interface ChatRequest {
   prompt: string;
   conversationHistory: Message[];
+  sessionProfile?: SessionProfile | null;
 }
+
+const BASE_SYSTEM_PROMPT =
+  "You are a helpful assistant that explains concepts clearly. When explaining a topic, provide a clear explanation first. Then, identify 2-4 key related sub-concepts that the user might want to explore deeper.\n\nFormat each sub-concept using this EXACT syntax at the end of your response:\n\n[[CONCEPT:Name of Sub-Concept]]\nOne sentence teaser about this sub-concept\n[[/CONCEPT]]\n\nExample response:\n\"Neural networks learn by adjusting weights through a process called training. They consist of layers of interconnected nodes...\n\n[[CONCEPT:Gradient Descent]]\nThe optimization algorithm that helps neural networks learn by minimizing error.\n[[/CONCEPT]]\n\n[[CONCEPT:Backpropagation]]\nThe method for calculating how much each weight contributed to the error.\n[[/CONCEPT]]\"\n\nOnly include concepts if the topic is substantial enough to warrant exploration. For simple questions or clarifications, you can skip the concept markers.";
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -22,7 +27,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const body: ChatRequest = await request.json();
-    const { prompt, conversationHistory = [] } = body;
+    const { prompt, conversationHistory = [], sessionProfile } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(JSON.stringify({ error: "Prompt is required" }), {
@@ -31,13 +36,27 @@ export async function action({ request }: Route.ActionArgs) {
       });
     }
 
+    let systemContent = BASE_SYSTEM_PROMPT;
+    if (sessionProfile && typeof sessionProfile === "object") {
+      const profileInstruction = [
+        "\n\n---",
+        "User learning profile (use for this session only; adapt your answers accordingly):",
+        "Adapt structure, depth, analogies, terminology, pace, and feedback tone to this profile.",
+        sessionProfile.detail_level &&
+          `Prefer ${sessionProfile.detail_level === "short" ? "short" : "detailed"} explanations.`,
+        sessionProfile.example_preference &&
+          `Prefer ${sessionProfile.example_preference === "examples" ? "examples" : "theory"}.`,
+        "Profile JSON:",
+        JSON.stringify(sessionProfile),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      systemContent += profileInstruction;
+    }
+
     // Build messages array with conversation history
     const messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content:
-          "You are a helpful assistant that explains concepts clearly. When explaining a topic, provide a clear explanation first. Then, identify 2-4 key related sub-concepts that the user might want to explore deeper.\n\nFormat each sub-concept using this EXACT syntax at the end of your response:\n\n[[CONCEPT:Name of Sub-Concept]]\nOne sentence teaser about this sub-concept\n[[/CONCEPT]]\n\nExample response:\n\"Neural networks learn by adjusting weights through a process called training. They consist of layers of interconnected nodes...\n\n[[CONCEPT:Gradient Descent]]\nThe optimization algorithm that helps neural networks learn by minimizing error.\n[[/CONCEPT]]\n\n[[CONCEPT:Backpropagation]]\nThe method for calculating how much each weight contributed to the error.\n[[/CONCEPT]]\"\n\nOnly include concepts if the topic is substantial enough to warrant exploration. For simple questions or clarifications, you can skip the concept markers.",
-      },
+      { role: "system", content: systemContent },
       ...conversationHistory.map((msg) => ({
         role: msg.role as "user" | "assistant",
         content: msg.content,

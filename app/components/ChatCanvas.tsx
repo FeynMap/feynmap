@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import {
   ReactFlow,
   Controls,
@@ -14,7 +14,11 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { ChatNode, type ChatNodeData } from "./ChatNode";
+import { PersonalizationModal } from "./PersonalizationModal";
 import { useChat } from "../hooks/useChat";
+import type { SessionProfile } from "../types/sessionProfile";
+
+const SESSION_PROFILE_KEY = "feynmap_session_profile";
 
 // Type for our custom node
 type ChatFlowNode = Node<ChatNodeData, "chatNode">;
@@ -47,8 +51,36 @@ function calculateChildPosition(
 export function ChatCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [sessionProfile, setSessionProfile] = useState<SessionProfile | null>(
+    () => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = sessionStorage.getItem(SESSION_PROFILE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as SessionProfile;
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
+  );
+  const [personalizationOpen, setPersonalizationOpen] = useState(false);
 
-  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges });
+  useEffect(() => {
+    if (sessionProfile) {
+      sessionStorage.setItem(SESSION_PROFILE_KEY, JSON.stringify(sessionProfile));
+    } else {
+      sessionStorage.removeItem(SESSION_PROFILE_KEY);
+    }
+  }, [sessionProfile]);
+
+  const { sendMessage } = useChat({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    sessionProfile,
+  });
 
   // Handle expanding a concept node to get full explanation
   const handleExpand = useCallback(
@@ -206,7 +238,21 @@ export function ChatCanvas() {
   );
 
   return (
-    <div className="w-full h-screen">
+    <div className="w-full h-screen relative">
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        {sessionProfile && (
+          <span className="px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/50 rounded-md">
+            Profile applied
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setPersonalizationOpen(true)}
+          className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          Personalize chat
+        </button>
+      </div>
       <ReactFlow
         nodes={initializedNodes}
         edges={edges}
@@ -226,6 +272,11 @@ export function ChatCanvas() {
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls />
       </ReactFlow>
+      <PersonalizationModal
+        isOpen={personalizationOpen}
+        onClose={() => setPersonalizationOpen(false)}
+        onApply={setSessionProfile}
+      />
     </div>
   );
 }
