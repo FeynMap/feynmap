@@ -9,6 +9,8 @@ interface UseChatOptions {
   edges: Edge[];
   setNodes: React.Dispatch<React.SetStateAction<ChatFlowNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  knownConceptsRef: React.RefObject<Set<string>>;
+  addKnownConcept: (concept: string) => void;
 }
 
 // Parse sub-concepts from streaming text
@@ -18,10 +20,16 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   
   let match;
   while ((match = conceptRegex.exec(text)) !== null) {
-    concepts.push({
-      name: match[1].trim(),
-      teaser: match[2].trim(),
-    });
+    const name = match[1].trim();
+    const teaser = match[2].trim();
+    
+    // Filter out empty or invalid concepts
+    if (name && teaser) {
+      concepts.push({
+        name,
+        teaser,
+      });
+    }
   }
   
   // Remove all concept markers from the display text
@@ -30,7 +38,7 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   return { concepts, cleanText };
 }
 
-export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
+export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept }: UseChatOptions) {
   // Build conversation history by traversing up the tree from a given node
   const buildConversationHistory = useCallback(
     (nodeId: string): Message[] => {
@@ -73,6 +81,10 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
         : [];
 
       try {
+        // Always get the latest known concepts from the ref to avoid stale closure values
+        const currentKnownConcepts = knownConceptsRef.current || new Set();
+        console.log('[useChat] Sending request with known concepts:', Array.from(currentKnownConcepts));
+        
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
@@ -81,6 +93,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
           body: JSON.stringify({
             prompt,
             conversationHistory,
+            knownConcepts: Array.from(currentKnownConcepts),
           }),
         });
 
@@ -129,6 +142,38 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
             const newConcepts = concepts.slice(lastConceptCount);
             lastConceptCount = concepts.length;
 
+            // Helper to normalize concept for comparison
+            const normalizeConcept = (name: string) => 
+              name.toLowerCase().replace(/\s+/g, ' ').trim();
+
+            // Get current known concepts for filtering
+            const currentKnown = knownConceptsRef.current || new Set();
+
+            // Validate concepts before adding - only check for exact duplicates
+            const validConcepts = newConcepts.filter((concept) => {
+              if (!concept.name || !concept.teaser) {
+                return false;
+              }
+
+              const normalized = normalizeConcept(concept.name);
+              
+              // Check if concept is already known (exact match only)
+              if (currentKnown.has(normalized)) {
+                console.log('[useChat] Skipping duplicate concept:', concept.name);
+                return false;
+              }
+
+              return true;
+            });
+
+            if (validConcepts.length === 0) continue; // Skip if no valid concepts
+
+            // Add concepts to the global map
+            validConcepts.forEach((concept) => {
+              console.log('[useChat] Adding concept to known list:', concept.name);
+              addKnownConcept(concept.name);
+            });
+
             // Create nodes and edges together to avoid race conditions
             const newNodeIds: string[] = [];
 
@@ -138,7 +183,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
 
               const newNodes: ChatFlowNode[] = [];
 
-              newConcepts.forEach((concept, index) => {
+              validConcepts.forEach((concept, index) => {
                 const childNodeId = generateNodeId();
                 newNodeIds.push(childNodeId);
                 // Use childrenCreated counter for positioning to avoid race conditions
@@ -164,7 +209,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
               });
 
               // Update counter for next batch
-              childrenCreated += newConcepts.length;
+              childrenCreated += validConcepts.length;
 
               return [...prevNodes, ...newNodes];
             });
@@ -218,7 +263,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
         );
       }
     },
-    [edges, buildConversationHistory, setNodes, setEdges]
+    [edges, buildConversationHistory, setNodes, setEdges, knownConceptsRef, addKnownConcept]
   );
 
   return { sendMessage };

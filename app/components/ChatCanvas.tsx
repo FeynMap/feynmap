@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useEffect, useRef } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -227,6 +227,31 @@ function ChatCanvasInner() {
   const { fitView } = useReactFlow();
   const layoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Global concept map to track all concepts added to the canvas
+  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(new Set());
+  
+  // Use a ref to always have access to the latest knownConcepts without closure issues
+  const knownConceptsRef = useRef<Set<string>>(knownConcepts);
+  useEffect(() => {
+    knownConceptsRef.current = knownConcepts;
+  }, [knownConcepts]);
+  
+  // Helper function to normalize concept names for comparison
+  const normalizeConcept = useCallback((concept: string): string => {
+    return concept
+      .toLowerCase()
+      .replace(/\s+/g, ' ') // Normalize whitespace (multiple spaces → single space)
+      .trim();
+  }, []);
+  
+  // Function to add a concept to the global map
+  const addKnownConcept = useCallback((concept: string) => {
+    const normalized = normalizeConcept(concept);
+    if (normalized) { // Only add non-empty concepts
+      setKnownConcepts((prev) => new Set(prev).add(normalized));
+    }
+  }, [normalizeConcept]);
+  
   // Refs to avoid stale closures in layout functions
   const nodesRef = useRef<ChatFlowNode[]>(nodes);
   const edgesRef = useRef<Edge[]>(edges);
@@ -235,7 +260,7 @@ function ChatCanvasInner() {
     edgesRef.current = edges;
   }, [nodes, edges]);
 
-  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges });
+  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept });
 
   // Simple function to apply layout - reads from refs to avoid stale closures
   const doLayout = useCallback(() => {
