@@ -6,7 +6,12 @@ export interface ChatNodeData extends Record<string, unknown> {
   response: string;
   isLoading: boolean;
   isInitial?: boolean;
+  isSubConcept?: boolean;
+  expanded?: boolean; // Whether a sub-concept has been expanded
+  conceptName?: string; // The name of the concept (for compact view)
+  conceptTeaser?: string; // The teaser text (for compact view)
   onSubmit: (nodeId: string, prompt: string) => void;
+  onExpand?: (nodeId: string) => void; // Callback when expanding a concept
 }
 
 interface ChatNodeProps {
@@ -16,7 +21,24 @@ interface ChatNodeProps {
 
 function ChatNodeComponent({ id, data }: ChatNodeProps) {
   const [inputValue, setInputValue] = useState("");
-  const { prompt, response, isLoading, isInitial, onSubmit } = data;
+  const { 
+    prompt, 
+    response, 
+    isLoading, 
+    isInitial, 
+    isSubConcept, 
+    expanded,
+    conceptName,
+    conceptTeaser,
+    onSubmit,
+    onExpand 
+  } = data;
+
+  const handleLearnMore = useCallback(() => {
+    if (onExpand) {
+      onExpand(id);
+    }
+  }, [id, onExpand]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -39,22 +61,130 @@ function ChatNodeComponent({ id, data }: ChatNodeProps) {
     [handleSubmit]
   );
 
+  // Render compact concept chip if it's a sub-concept that hasn't been expanded
+  if (isSubConcept && !expanded) {
+    return (
+      <div className="chat-node bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-emerald-300 dark:border-emerald-600 ring-2 ring-emerald-100 dark:ring-emerald-900/50 min-w-[320px] max-w-[380px] overflow-hidden">
+        <Handle
+          type="target"
+          position={Position.Top}
+          className="!bg-emerald-500 !w-3 !h-3 !border-2 !border-white"
+        />
+        
+        <div className="p-4">
+          {/* Concept icon and name */}
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex-1">
+              {conceptName}
+            </h3>
+          </div>
+
+          {/* Teaser text */}
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
+            {conceptTeaser}
+          </p>
+
+          {/* Learn More button */}
+          <button
+            onClick={handleLearnMore}
+            disabled={isLoading}
+            className="w-full px-4 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            {isLoading ? (
+              <>
+                <svg
+                  className="w-4 h-4 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Loading...
+              </>
+            ) : (
+              <>
+                <span>Learn More</span>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </>
+            )}
+          </button>
+        </div>
+
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="!bg-emerald-500 !w-3 !h-3 !border-2 !border-white"
+        />
+      </div>
+    );
+  }
+
+  // Regular chat node (either initial or expanded concept)
   return (
-    <div className="chat-node bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 min-w-[380px] max-w-[420px] overflow-hidden">
+    <div className={`chat-node bg-white dark:bg-gray-800 rounded-xl shadow-lg border min-w-[380px] max-w-[420px] overflow-hidden ${
+      isSubConcept 
+        ? 'border-emerald-300 dark:border-emerald-600 ring-2 ring-emerald-100 dark:ring-emerald-900/50' 
+        : 'border-gray-200 dark:border-gray-700'
+    }`}>
       {/* Input handle at top (for receiving edges) */}
       {!isInitial && (
         <Handle
           type="target"
           position={Position.Top}
-          className="!bg-blue-500 !w-3 !h-3 !border-2 !border-white"
+          className={isSubConcept ? "!bg-emerald-500 !w-3 !h-3 !border-2 !border-white" : "!bg-blue-500 !w-3 !h-3 !border-2 !border-white"}
         />
       )}
 
       {/* Prompt section */}
       {prompt && (
-        <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border-b border-gray-200 dark:border-gray-700">
+        <div className={`p-4 border-b border-gray-200 dark:border-gray-700 ${
+          isSubConcept 
+            ? 'bg-emerald-50 dark:bg-emerald-900/30' 
+            : 'bg-blue-50 dark:bg-blue-900/30'
+        }`}>
           <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+              isSubConcept ? 'bg-emerald-500' : 'bg-blue-500'
+            }`}>
               <svg
                 className="w-4 h-4 text-white"
                 fill="none"

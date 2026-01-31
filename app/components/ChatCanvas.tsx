@@ -48,7 +48,35 @@ export function ChatCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  const { sendMessage } = useChat({ nodes, edges, setNodes });
+  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges });
+
+  // Handle expanding a concept node to get full explanation
+  const handleExpand = useCallback(
+    async (nodeId: string) => {
+      const currentNode = nodes.find((n) => n.id === nodeId);
+      if (!currentNode) return;
+
+      // Mark the node as expanded and loading
+      setNodes((prevNodes) =>
+        prevNodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  expanded: true,
+                  isLoading: true,
+                },
+              }
+            : node
+        )
+      );
+
+      // Send message to get full explanation
+      await sendMessage(nodeId, currentNode.data.prompt);
+    },
+    [nodes, setNodes, sendMessage]
+  );
 
   // Handle submitting a message from a node
   const handleSubmit = useCallback(
@@ -135,21 +163,23 @@ export function ChatCanvas() {
           isLoading: false,
           isInitial: true,
           onSubmit: handleSubmit,
+          onExpand: handleExpand,
         },
       };
       // Use setTimeout to avoid setting state during render
       setTimeout(() => setNodes([initialNode]), 0);
       return [initialNode];
     }
-    // Update onSubmit callback for all nodes
+    // Update onSubmit and onExpand callbacks for all nodes
     return nodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
         onSubmit: handleSubmit,
+        onExpand: handleExpand,
       },
     }));
-  }, [nodes, handleSubmit, setNodes]);
+  }, [nodes, handleSubmit, handleExpand, setNodes]);
 
   // Define custom node types
   const nodeTypes = useMemo(
