@@ -159,8 +159,6 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                     isLoading: false,
                     isSubConcept: true,
                     expanded: false,
-                    onSubmit: () => {}, // Will be set by ChatCanvas
-                    onExpand: () => {}, // Will be set by ChatCanvas
                   },
                 });
               });

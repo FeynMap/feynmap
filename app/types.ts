@@ -10,6 +10,7 @@ export interface SubConcept {
   teaser: string;
 }
 
+// Callbacks are provided via ChatCallbackContext, not in node data
 export interface ChatNodeData extends Record<string, unknown> {
   prompt: string;
   response: string;
@@ -19,8 +20,12 @@ export interface ChatNodeData extends Record<string, unknown> {
   expanded?: boolean;
   conceptName?: string;
   conceptTeaser?: string;
-  onSubmit: (nodeId: string, prompt: string) => void;
-  onExpand?: (nodeId: string) => void;
 }
 
 export type ChatFlowNode = Node<ChatNodeData, "chatNode">;
+
+// Callback types for the context
+export interface ChatCallbacks {
+  onSubmit: (nodeId: string, prompt: string) => void;
+  onExpand: (nodeId: string) => void;
+}
