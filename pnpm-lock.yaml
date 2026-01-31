@@ -20,6 +20,9 @@ importers:
       compression:
         specifier: ^1.8.0
         version: 1.8.1
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
       drizzle-orm:
         specifier: ~0.36.3
         version: 0.36.4(@types/pg@8.16.0)(@types/react@19.2.10)(postgres@3.4.8)(react@19.2.4)

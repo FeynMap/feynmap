@@ -6,4 +6,5 @@ export default [
   route("chat", "routes/chat.tsx"),
   route("api/chat", "routes/api.chat.ts"),
   route("canvas", "routes/canvas.tsx"),
+  route("api/generate-map", "routes/api.generate-map.ts"),
 ] satisfies RouteConfig;

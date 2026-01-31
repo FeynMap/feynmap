@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createRequestHandler } from "@react-router/express";
 import { drizzle } from "drizzle-orm/postgres-js";
 import express from "express";
