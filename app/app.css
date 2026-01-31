@@ -80,3 +80,15 @@ body {
     transform: scale(1);
   }
 }
+
+/* Animated flowing dashes for React Flow edges */
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Apply animation to React Flow edges */
+.react-flow__edge-path {
+  animation: dash-flow 1s linear infinite;
+}
