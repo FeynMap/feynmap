@@ -84,10 +84,8 @@ const getLayoutedElements = (
       }
     });
     
-    // Use max height for vertical spacing between depth levels
-    const maxHeight = Math.max(...Array.from(nodeDimensions.values()).map(d => d.height));
-    // Vertical spacing multiplier for depth levels
-    const verticalSpacing = maxHeight * 1.3;
+    // Constant gap between depth levels
+    const depthGap = 120;
     
     // Use size() with separation for dynamic spacing
     // separation() returns the gap between siblings relative to a unit distance
@@ -119,11 +117,35 @@ const getLayoutedElements = (
       nodesByDepth.get(node.depth)!.push(node);
     });
     
+    // Calculate vertical positions for each depth level
+    // Each level should be positioned based on the max height of the previous level + constant gap
+    const depthYPositions = new Map<number, number>();
+    let cumulativeY = 50; // Start position for root
+    const maxDepth = Math.max(...Array.from(nodesByDepth.keys()));
+    
+    for (let depth = 0; depth <= maxDepth; depth++) {
+      depthYPositions.set(depth, cumulativeY);
+      
+      // Calculate max height at this depth for the next level
+      const nodesAtDepth = nodesByDepth.get(depth) || [];
+      const maxHeightAtDepth = Math.max(
+        ...nodesAtDepth.map((n: any) => {
+          const dims = nodeDimensions.get(n.id);
+          return dims?.height || 250;
+        })
+      );
+      
+      // Next level starts after this level's max height + gap
+      cumulativeY += maxHeightAtDepth + depthGap;
+    }
+    
     // Recalculate x positions for each depth to prevent horizontal overlaps
     const layoutedNodes: any[] = [];
     nodesByDepth.forEach((nodesAtDepth, depth) => {
       // Sort by initial x position
       nodesAtDepth.sort((a, b) => a.position.x - b.position.x);
+      
+      const yPosition = depthYPositions.get(depth) || 0;
       
       // Calculate proper positions with actual node widths
       if (nodesAtDepth.length === 1) {
@@ -134,7 +156,7 @@ const getLayoutedElements = (
           ...nodesAtDepth[0],
           position: { 
             x: -nodeWidth / 2,  // Top-left corner positioned so node is centered at x=0
-            y: depth * verticalSpacing  // Vertical position based on depth
+            y: yPosition  // Vertical position based on cumulative heights
           }
         });
       } else {
@@ -158,7 +180,7 @@ const getLayoutedElements = (
             ...node,
             position: {
               x: currentX,  // This is the LEFT of the node (React Flow uses top-left corner)
-              y: depth * verticalSpacing  // Vertical position based on depth
+              y: yPosition  // Vertical position based on cumulative heights
             }
           });
           
