@@ -182,13 +182,17 @@ const getLayoutedElements = (
 // Generate initial node ID once at module level to avoid regenerating on re-renders
 const initialNodeId = generateNodeId();
 
+// Default node width for initial positioning (before DOM measurement)
+const DEFAULT_NODE_WIDTH = 840;
+
 function ChatCanvasInner() {
   // Initialize with starter node inline instead of useEffect
+  // Position it centered at x=0 (matching the layout algorithm)
   const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([
     {
       id: initialNodeId,
       type: "chatNode",
-      position: { x: 250, y: 50 },
+      position: { x: -DEFAULT_NODE_WIDTH / 2, y: 50 },
       data: {
         prompt: "",
         response: "",
@@ -266,9 +270,12 @@ function ChatCanvasInner() {
     
     let needsLayout = false;
     
+    // Skip layout for the single initial empty root node
+    const isSingleInitialNode = nodes.length === 1 && nodes[0]?.data.isInitial && !nodes[0]?.data.prompt;
+    
     // Check if node/edge count changed
     if (nodes.length !== prev.nodeCount || edges.length !== prev.edgeCount) {
-      needsLayout = true;
+      needsLayout = !isSingleInitialNode; // Don't layout the initial empty node
     }
     
     // Check if any node just finished loading
