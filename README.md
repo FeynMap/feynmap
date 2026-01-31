@@ -19,11 +19,11 @@ What technologies power your project?
 
 <!-- List your main technologies, frameworks, and services -->
 
-- **Frontend**: e.g., Next.js, React, Tailwind
-- **Backend**: e.g., Node.js, Python, FastAPI
-- **Database**: e.g., Supabase, Firebase, PostgreSQL
+- **Frontend**: React-Router v7
+- **Backend**: React-Router v7
+- **Database**: PostgreSQL
 - **AI/ML**: e.g., OpenAI GPT-4, Gemini Pro
-- **Hosting**: e.g., Vercel, Railway
+- **Hosting**: fly.io
 
 ## How to Run
 
@@ -31,18 +31,23 @@ Step-by-step instructions to run the project locally, including everything that 
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-team/your-project.git
-cd your-project
+git clone git@github.com:FeynMap/feynmap.git
+cd feynmap
+
+# Install pnpm: follow https://pnpm.io/installation
 
 # Install dependencies
-npm install
+pnpm install
 
 # Set up environment variables
 cp .env.example .env
 # Add your API keys to .env
 
+# setup db
+pnpm db:migrate
+
 # Run the development server
-npm run dev
+pnpm dev
 ```
 
 ## Details
