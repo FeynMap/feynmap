@@ -27,20 +27,34 @@ export async function action({ request }: Route.ActionArgs) {
 
     const openai = new OpenAI({ apiKey });
 
-    const prompt = `Topic: "${topic.trim()}"
+    const prompt = `Break down "${topic.trim()}" into 8-10 simple concepts that connect to each other.
+Each concept should be one thing you can explain in 2 minutes.
+Start with basics, progress to advanced.
 
-Generate 6-8 essential concepts:
-- Root: "${topic.trim()}" (id: "root", level: 0)
-- 3-4 main concepts (level 1)
-- 1-2 key subs per main (level 2)
-
-JSON format:
+Return JSON:
 {
-  "nodes": [{"id": "root", "label": "${topic.trim()}", "level": 0}, {"id": "c1", "label": "Concept", "level": 1}, {"id": "s1", "label": "Sub", "level": 2}],
-  "edges": [{"source": "root", "target": "c1"}, {"source": "c1", "target": "s1"}]
+  "nodes": [
+    {"id": "root", "label": "${topic.trim()}", "level": 0},
+    {"id": "c1", "label": "Concept Name", "level": 1},
+    {"id": "c2", "label": "Concept Name", "level": 1},
+    {"id": "s1", "label": "Sub Concept", "level": 2}
+  ],
+  "edges": [
+    {"source": "root", "target": "c1"},
+    {"source": "root", "target": "c2"},
+    {"source": "c1", "target": "s1"}
+  ]
 }
 
-Rules: Labels 1-2 words. IDs kebab-case. Essential only.`;
+Rules:
+- Generate 8-10 concepts total (including root)
+- Each concept should be explainable in 2 minutes
+- Progress from basic to advanced
+- Labels should be 1-3 words, clear and simple
+- IDs should be kebab-case
+- Create logical connections between concepts
+- Root concept should connect to 2-4 main concepts
+- Main concepts can have 1-2 sub-concepts each`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -55,7 +69,7 @@ Rules: Labels 1-2 words. IDs kebab-case. Essential only.`;
         },
       ],
       temperature: 0.3,
-      max_tokens: 500,
+      max_tokens: 800,
       response_format: { type: "json_object" },
     });
 

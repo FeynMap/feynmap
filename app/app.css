@@ -54,3 +54,24 @@
 .loading-dot {
   animation: pulse-glow 1.4s ease-in-out infinite;
 }
+
+/* ReactFlow controls dark theme styling */
+.react-flow__controls {
+  background-color: #40414f !important;
+  border: 1px solid #565869 !important;
+}
+
+.react-flow__controls-button {
+  background-color: #40414f !important;
+  border-bottom: 1px solid #565869 !important;
+  color: #d1d5db !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #565869 !important;
+}
+
+.react-flow__minimap {
+  background-color: #40414f !important;
+  border: 1px solid #565869 !important;
+}

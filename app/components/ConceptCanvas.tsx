@@ -15,9 +15,9 @@ import {
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { TextInputNode, type TextInputNodeData } from "./TextInputNode";
 import { FloatingEdge } from "./FloatingEdge";
 import { GroupNode } from "./GroupNode";
+import { ConceptChat, type ChatMessage } from "./ConceptChat";
 
 // Types for concept map nodes
 export type ConceptNodeData = {
@@ -25,7 +25,11 @@ export type ConceptNodeData = {
   description?: string;
   level?: number;
   explanation?: string;
+  explanationPrompt?: string;
   isLoadingExplanation?: boolean;
+  score?: number; // 0-100, understanding percentage
+  userExplanation?: string; // User's explanation attempt
+  isWaitingForExplanation?: boolean; // Whether AI is waiting for user response
   onExplain?: (nodeId: string) => void;
   onCloseExplanation?: (nodeId: string) => void;
 };
@@ -33,21 +37,34 @@ export type ConceptNodeData = {
 export type ConceptNode = Node<ConceptNodeData>;
 export type ConceptEdge = Edge;
 
-// Default node component - minimal and clean
+// Default node component with score visualization
 function ConceptNode({ id, data, selected }: { id: string; data: ConceptNodeData; selected?: boolean }) {
   const handleClick = () => {
-    if (data.explanation && data.onCloseExplanation) {
-      // If explanation is open, close it
-      data.onCloseExplanation(id);
-    } else if (data.onExplain && !data.isLoadingExplanation) {
-      // Otherwise, fetch explanation
+    if (data.onExplain && !data.isLoadingExplanation) {
       data.onExplain(id);
     }
   };
 
+  const score = data.score ?? 0;
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "border-green-500 bg-green-900/30";
+    if (score >= 50) return "border-yellow-500 bg-yellow-900/30";
+    return "border-red-500 bg-red-900/30";
+  };
+
+  const getScoreTextColor = (score: number) => {
+    if (score >= 80) return "text-green-600";
+    if (score >= 50) return "text-yellow-600";
+    return "text-red-600";
+  };
+
   return (
     <div 
-      className="px-5 py-3 border border-gray-200 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer relative"
+      className={`px-5 py-3 border-2 rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer relative min-w-[140px] ${
+        score > 0 
+          ? getScoreColor(score) 
+          : "border-[#565869] bg-[#40414f]"
+      }`}
       onClick={handleClick}
     >
       <Handle 
@@ -56,32 +73,65 @@ function ConceptNode({ id, data, selected }: { id: string; data: ConceptNodeData
         id="top"
         className="!bg-gray-400"
       />
-      <div className="text-sm text-gray-900 text-center font-medium leading-tight">
+      
+      {/* Score indicator - circular progress */}
+      {score > 0 && (
+        <div className="absolute -top-2 -right-2 w-8 h-8">
+          <svg className="w-8 h-8 transform -rotate-90" viewBox="0 0 32 32">
+            <circle
+              cx="16"
+              cy="16"
+              r="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-gray-200"
+            />
+            <circle
+              cx="16"
+              cy="16"
+              r="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray={`${(score / 100) * 87.96} 87.96`}
+              strokeLinecap="round"
+              className={getScoreTextColor(score)}
+            />
+          </svg>
+          <div className={`absolute inset-0 flex items-center justify-center text-xs font-bold ${getScoreTextColor(score)}`}>
+            {score}
+          </div>
+        </div>
+      )}
+
+      <div className="text-sm text-white text-center font-medium leading-tight">
         {data.label}
       </div>
+
+      {/* Linear progress bar at bottom */}
+      {score > 0 && (
+        <div className="mt-2 h-1 bg-[#565869] rounded-full overflow-hidden">
+          <div
+            className={`h-full transition-all duration-500 ${
+              score >= 80
+                ? "bg-green-500"
+                : score >= 50
+                ? "bg-yellow-500"
+                : "bg-red-500"
+            }`}
+            style={{ width: `${score}%` }}
+          />
+        </div>
+      )}
+
       {data.isLoadingExplanation && (
-        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap z-10">
+        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-[#40414f] border border-[#565869] text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap z-10">
           <span className="inline-block w-2 h-2 bg-white rounded-full animate-pulse mr-2"></span>
           Explaining...
         </div>
       )}
-      {data.explanation && (
-        <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 -translate-y-full mb-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-10">
-          <div className="text-xs font-semibold text-gray-700 mb-2">Feynman Explanation</div>
-          <div className="text-sm text-gray-800 leading-relaxed">{data.explanation}</div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (data.onCloseExplanation) {
-                data.onCloseExplanation(id);
-              }
-            }}
-            className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-lg leading-none w-5 h-5 flex items-center justify-center"
-          >
-            ×
-          </button>
-        </div>
-      )}
+
       <Handle 
         type="source" 
         position={Position.Bottom} 
@@ -92,26 +142,12 @@ function ConceptNode({ id, data, selected }: { id: string; data: ConceptNodeData
   );
 }
 
-// Initial state: just the TextInputNode (coach) at center
-const initialNodes: Node[] = [
-  {
-    id: "coach-input",
-    type: "textInput",
-    position: { x: 0, y: 0 },
-    selectable: false,
-    data: {
-      value: "",
-      isLoading: false,
-      error: undefined,
-    },
-  },
-];
-
+// Initial state: empty canvas
+const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
 const nodeTypes = {
   concept: ConceptNode,
-  textInput: TextInputNode,
   group: GroupNode,
 };
 
@@ -123,8 +159,22 @@ function CanvasContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  const [activeConcept, setActiveConcept] = useState<{
+    id: string;
+    name: string;
+    explanation: string;
+  } | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isScoring, setIsScoring] = useState(false);
   const currentTopicRef = useRef<string>("");
   const nodesRef = useRef(nodes);
+  const activeConceptRef = useRef(activeConcept);
+  
+  // Keep activeConceptRef in sync
+  useEffect(() => {
+    activeConceptRef.current = activeConcept;
+  }, [activeConcept]);
   
   // Keep nodesRef in sync with nodes
   useEffect(() => {
@@ -136,6 +186,57 @@ function CanvasContent() {
     [setEdges]
   );
 
+  // Calculate next concept suggestion based on prerequisites and scores
+  const getNextConceptSuggestion = useCallback(() => {
+    if (nodes.length === 0) return null;
+
+    // Find concepts that haven't been learned yet (no score)
+    const unlearnedConcepts = nodes.filter((n) => {
+      const data = n.data as ConceptNodeData;
+      return data.score === undefined;
+    });
+
+    if (unlearnedConcepts.length === 0) return null;
+
+    // Find concepts where all prerequisites are mastered (score >= 80 or no prerequisites)
+    const readyConcepts = unlearnedConcepts.filter((node) => {
+      // Find all incoming edges (prerequisites)
+      const prerequisites = edges
+        .filter((e) => e.target === node.id)
+        .map((e) => nodes.find((n) => n.id === e.source))
+        .filter((n): n is Node<ConceptNodeData> => n !== undefined);
+
+      // If no prerequisites, it's ready
+      if (prerequisites.length === 0) return true;
+
+      // Check if all prerequisites are mastered (score >= 80)
+      return prerequisites.every((prereq) => {
+        const score = (prereq.data as ConceptNodeData).score;
+        return score !== undefined && score >= 80;
+      });
+    });
+
+    // If there are ready concepts, suggest the first one (or one with lowest level)
+    if (readyConcepts.length > 0) {
+      // Sort by level (lower level first) and return the first
+      const sorted = readyConcepts.sort((a, b) => {
+        const levelA = (a.data as ConceptNodeData).level || 0;
+        const levelB = (b.data as ConceptNodeData).level || 0;
+        return levelA - levelB;
+      });
+      return {
+        id: sorted[0].id,
+        name: (sorted[0].data as ConceptNodeData).label,
+      };
+    }
+
+    // If no ready concepts, suggest the first unlearned concept (might need prerequisites)
+    return {
+      id: unlearnedConcepts[0].id,
+      name: (unlearnedConcepts[0].data as ConceptNodeData).label,
+    };
+  }, [nodes, edges]);
+
   const handleExplain = useCallback(async (nodeId: string) => {
     // Get node from ref to avoid dependency on nodes
     const node = nodesRef.current.find((n) => n.id === nodeId);
@@ -143,7 +244,21 @@ function CanvasContent() {
 
     const nodeLabel = node.data.label;
 
-    // Set loading state
+    // If clicking a different node, clear the previous active concept
+    const currentActive = activeConceptRef.current;
+    if (currentActive && currentActive.id !== nodeId) {
+      setActiveConcept(null);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Switching to "${nodeLabel}"...`,
+          isLoading: true,
+        },
+      ]);
+    }
+
+    // Set loading state on node
     setNodes((nds) =>
       nds.map((n) =>
         n.id === nodeId
@@ -152,12 +267,22 @@ function CanvasContent() {
               data: {
                 ...(n.data as ConceptNodeData),
                 isLoadingExplanation: true,
-                explanation: undefined,
               },
             }
           : n
       )
     );
+
+      // Add loading message to chat immediately
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Explaining "${nodeLabel}"...`,
+          conceptId: nodeId,
+          isLoading: true,
+        },
+      ]);
 
     try {
       const response = await fetch("/api/explain", {
@@ -177,7 +302,7 @@ function CanvasContent() {
         throw new Error(result.error || "Failed to get explanation");
       }
 
-      // Update node with explanation
+      // Update node with explanation prompt
       setNodes((nds) =>
         nds.map((n) =>
           n.id === nodeId
@@ -185,15 +310,56 @@ function CanvasContent() {
                 ...n,
                 data: {
                   ...(n.data as ConceptNodeData),
-                  explanation: result.explanation,
+                  explanationPrompt: result.explanation,
                   isLoadingExplanation: false,
+                  isWaitingForExplanation: true,
                 },
               }
             : n
         )
       );
+
+      // Set or update active concept (allows re-explaining same concept)
+      setActiveConcept({
+        id: nodeId,
+        name: nodeLabel,
+        explanation: result.explanation,
+      });
+
+      // Replace loading message with actual explanation
+      setChatMessages((prev) => {
+        const newMessages = [...prev];
+        // Find and replace the last loading message (either for this concept or any loading message)
+        let lastLoadingIndex = newMessages.findLastIndex(
+          (msg) => msg.conceptId === nodeId && msg.isLoading
+        );
+        // If not found, try to find any loading message
+        if (lastLoadingIndex === -1) {
+          lastLoadingIndex = newMessages.findLastIndex(
+            (msg) => msg.isLoading
+          );
+        }
+        if (lastLoadingIndex !== -1) {
+          newMessages[lastLoadingIndex] = {
+            role: "assistant",
+            content: result.explanation,
+            conceptId: nodeId,
+            isLoading: false,
+          };
+        } else {
+          // If we couldn't find it, just add the message
+          newMessages.push({
+            role: "assistant",
+            content: result.explanation,
+            conceptId: nodeId,
+          });
+        }
+        return newMessages;
+      });
     } catch (error) {
       console.error("Error getting explanation:", error);
+      
+      // Update node to remove loading state
       setNodes((nds) =>
         nds.map((n) =>
           n.id === nodeId
@@ -202,16 +368,82 @@ function CanvasContent() {
                 data: {
                   ...(n.data as ConceptNodeData),
                   isLoadingExplanation: false,
-                  explanation: "Failed to load explanation. Please try again.",
                 },
               }
             : n
         )
       );
-    }
-  }, [setNodes]);
 
-  const handleCloseExplanation = useCallback((nodeId: string) => {
+      // Replace loading message with error message
+      setChatMessages((prev) => {
+        const newMessages = [...prev];
+        const lastLoadingIndex = newMessages.findLastIndex(
+          (msg) => msg.conceptId === nodeId && msg.isLoading
+        );
+        if (lastLoadingIndex !== -1) {
+          newMessages[lastLoadingIndex] = {
+            role: "assistant",
+            content: "Sorry, I couldn't generate an explanation. Please try again.",
+            conceptId: nodeId,
+            isLoading: false,
+          };
+        }
+        return newMessages;
+      });
+    }
+  }, [setNodes, setChatMessages, setActiveConcept]);
+
+  const handleLearnNext = useCallback(
+    (conceptId: string) => {
+      handleExplain(conceptId);
+    },
+    [handleExplain]
+  );
+
+  const handleUserExplanation = useCallback(
+    async (explanation: string) => {
+      if (!activeConcept) return;
+
+      const nodeId = activeConcept.id;
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      // Add user message to chat
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          content: explanation,
+          conceptId: nodeId,
+        },
+      ]);
+
+      setIsScoring(true);
+
+      try {
+        const response = await fetch("/api/score", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            concept: activeConcept.name,
+            aiExplanation: activeConcept.explanation,
+            userExplanation: explanation,
+            topic: currentTopicRef.current,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to score explanation");
+        }
+
+        const score = result.score;
+        const feedback = result.feedback || "";
+
+        // Update node with score
     setNodes((nds) =>
       nds.map((n) =>
         n.id === nodeId
@@ -219,34 +451,86 @@ function CanvasContent() {
               ...n,
               data: {
                 ...(n.data as ConceptNodeData),
-                explanation: undefined,
-                isLoadingExplanation: false,
+                    score,
+                    userExplanation: explanation,
+                    isWaitingForExplanation: false,
               },
             }
           : n
       )
     );
-  }, [setNodes]);
 
-  const handleTopicSubmit = useCallback(async (topic: string) => {
-    // Update the TextInputNode to show loading state
-    setNodes((nds) =>
-      nds.map((node) =>
-        node.id === "coach-input"
-          ? {
-              ...node,
-              data: {
-                ...(node.data as TextInputNodeData),
-                isLoading: true,
-                error: undefined,
-              },
-            }
-          : node
-      )
-    );
+        // Add score feedback as a separate new message
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: score >= 100
+              ? `Excellent! You've mastered this concept. You scored ${score}%.`
+              : `You scored ${score}%. ${feedback}`,
+            conceptId: nodeId,
+            score,
+            feedback,
+          },
+        ]);
 
+        // Calculate next suggestion for the action button
+        const suggestion = getNextConceptSuggestion();
+
+        // Add follow-up message with actions
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "Would you like to try explaining again, or learn another concept?",
+            conceptId: nodeId,
+            showActions: true,
+            currentConceptId: nodeId,
+            onTryAgain: () => {
+              // Re-trigger explanation for the same concept
+              handleExplain(nodeId);
+            },
+            onLearnAnother: suggestion
+              ? () => {
+                  // Clear current concept and learn the suggested next one
+                  setActiveConcept(null);
+                  handleLearnNext(suggestion.id);
+                }
+              : undefined,
+          },
+        ]);
+
+        // Keep activeConcept so user can try explaining again or click node for fresh explanation
+        // Only clear it when they click a different node
+      } catch (error) {
+        console.error("Error scoring explanation:", error);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "Sorry, there was an error evaluating your explanation. Please try again.",
+            conceptId: nodeId,
+          },
+        ]);
+      } finally {
+        setIsScoring(false);
+      }
+    },
+    [activeConcept, setNodes, setChatMessages, setActiveConcept, getNextConceptSuggestion, handleExplain, handleLearnNext]
+  );
+
+  const handleTopicSubmit = useCallback(
+    async (topic: string) => {
     setIsGenerating(true);
+      setCurrentTopic(topic);
     currentTopicRef.current = topic;
+      setChatMessages([
+        {
+          role: "assistant",
+          content: `Generating learning map for "${topic}"...`,
+          isLoading: true,
+        },
+      ]);
 
     try {
       const response = await fetch("/api/generate-map", {
@@ -271,9 +555,6 @@ function CanvasContent() {
 
       // Calculate positions for tree layout using hierarchical structure
       const positionedNodes = calculateHierarchicalLayout(generatedNodes, generatedEdges, topic);
-
-      // Find the root node (first concept)
-      const rootNode = positionedNodes.find((n) => n.id === "root" || n.level === 0) || positionedNodes[0];
       
       // Create React Flow nodes with explanation handler
       const reactFlowNodes: ConceptNode[] = positionedNodes.map((node: any) => ({
@@ -285,26 +566,8 @@ function CanvasContent() {
           description: node.description,
           level: node.level,
           onExplain: handleExplain,
-          onCloseExplanation: handleCloseExplanation,
         },
       }));
-
-      // Position the TextInputNode above the root node
-      const coachNode: Node = {
-        id: "coach-input",
-        type: "textInput",
-        position: { 
-          x: rootNode.position.x, 
-          y: rootNode.position.y - 120 
-        },
-        selectable: false,
-        data: {
-          value: topic,
-          isLoading: false,
-          error: undefined,
-          onSubmit: handleTopicSubmit,
-        },
-      };
 
       // Create React Flow edges with floating edge styling
       const reactFlowEdges: ConceptEdge[] = generatedEdges.map((edge: any, index: number) => ({
@@ -316,19 +579,30 @@ function CanvasContent() {
         type: "floating",
       }));
 
-      // Add edge from TextInputNode to root node
-      const coachToRootEdge: ConceptEdge = {
-        id: "e-coach-input-root",
-        source: "coach-input",
-        sourceHandle: "output",
-        target: rootNode.id,
-        targetHandle: "top",
-        type: "floating",
-      };
+      // Set nodes and edges
+      setNodes(reactFlowNodes);
+      setEdges(reactFlowEdges);
 
-      // Keep the TextInputNode and add the generated map
-      setNodes([coachNode, ...reactFlowNodes]);
-      setEdges([coachToRootEdge, ...reactFlowEdges]);
+      // Replace loading message with success message
+      setChatMessages((prev) => {
+        const newMessages = [...prev];
+        const lastLoadingIndex = newMessages.findLastIndex(
+          (msg) => msg.isLoading
+        );
+        if (lastLoadingIndex !== -1) {
+          newMessages[lastLoadingIndex] = {
+            role: "assistant",
+            content: `Learning map generated! Click on any concept to learn about it.`,
+            isLoading: false,
+          };
+        } else {
+          newMessages.push({
+            role: "assistant",
+            content: `Learning map generated! Click on any concept to learn about it.`,
+          });
+        }
+        return newMessages;
+      });
 
       // Fit view to show all nodes after a brief delay
       setTimeout(() => {
@@ -336,48 +610,50 @@ function CanvasContent() {
       }, 100);
     } catch (error) {
       console.error("Error generating concept map:", error);
-      
-      // Update the TextInputNode to show error
-      setNodes((nds) =>
-        nds.map((node) =>
-          node.id === "coach-input"
-            ? {
-                ...node,
-                selectable: false,
-                data: {
-                  ...(node.data as TextInputNodeData),
+      setChatMessages((prev) => {
+        const newMessages = [...prev];
+        const lastLoadingIndex = newMessages.findLastIndex(
+          (msg) => msg.isLoading
+        );
+        if (lastLoadingIndex !== -1) {
+          newMessages[lastLoadingIndex] = {
+            role: "assistant",
+            content: `Error: ${error instanceof Error ? error.message : "Failed to generate concept map"}`,
                   isLoading: false,
-                  error: error instanceof Error ? error.message : "Failed to generate concept map",
-                },
-              }
-            : node
-        )
-      );
+          };
+        } else {
+          newMessages.push({
+            role: "assistant",
+            content: `Error: ${error instanceof Error ? error.message : "Failed to generate concept map"}`,
+          });
+        }
+        return newMessages;
+      });
     } finally {
       setIsGenerating(false);
     }
-  }, [setNodes, setEdges, handleExplain, handleCloseExplanation]);
+  }, [setNodes, setEdges, handleExplain]);
 
-  // Update the TextInputNode data with the submit handler
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((node) =>
-        node.id === "coach-input"
-          ? {
-              ...node,
-              selectable: false,
-              data: {
-                ...(node.data as TextInputNodeData),
-                onSubmit: handleTopicSubmit,
-              },
-            }
-          : node
-      )
-    );
-  }, [handleTopicSubmit, setNodes]);
+  const nextConceptSuggestion = getNextConceptSuggestion();
 
   return (
-    <div className="w-full h-screen relative bg-gray-50">
+    <div className="w-full h-screen flex bg-[#343541]">
+      {/* Left pane: Chat (1/3 width) */}
+      <div className="w-1/3 flex-shrink-0">
+        <ConceptChat
+          topic={currentTopic}
+          onTopicSubmit={handleTopicSubmit}
+          activeConcept={activeConcept}
+          onUserExplanation={handleUserExplanation}
+          isScoring={isScoring}
+          messages={chatMessages}
+          nextConceptSuggestion={nextConceptSuggestion}
+          onLearnNext={handleLearnNext}
+        />
+      </div>
+
+      {/* Right pane: Canvas (2/3 width) */}
+      <div className="flex-1 relative bg-[#343541]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -393,10 +669,18 @@ function CanvasContent() {
         }}
         connectionLineType="bezier"
       >
-        <Background />
+          <Background 
+            variant="dots" 
+            gap={20} 
+            size={1}
+            color="#565869"
+          />
         <Controls />
-        <MiniMap />
+          <MiniMap 
+            nodeColor="#19c37d"
+          />
       </ReactFlow>
+      </div>
     </div>
   );
 }
@@ -556,8 +840,8 @@ export function ConceptCanvas() {
 
   if (!isClient) {
     return (
-      <div className="w-full h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading canvas...</p>
+      <div className="w-full h-screen bg-[#343541] flex items-center justify-center">
+        <p className="text-gray-400">Loading canvas...</p>
       </div>
     );
   }

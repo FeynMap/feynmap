@@ -7,4 +7,6 @@ export default [
   route("api/chat", "routes/api.chat.ts"),
   route("canvas", "routes/canvas.tsx"),
   route("api/generate-map", "routes/api.generate-map.ts"),
+  route("api/explain", "routes/api.explain.ts"),
+  route("api/score", "routes/api.score.ts"),
 ] satisfies RouteConfig;
