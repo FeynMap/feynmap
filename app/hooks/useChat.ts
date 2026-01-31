@@ -1,18 +1,8 @@
 import { useCallback } from "react";
-import type { Node, Edge } from "@xyflow/react";
-import type { ChatNodeData } from "../components/ChatNode";
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface SubConcept {
-  name: string;
-  teaser: string;
-}
-
-type ChatFlowNode = Node<ChatNodeData, "chatNode">;
+import type { Edge } from "@xyflow/react";
+import type { Message, SubConcept, ChatFlowNode } from "../types";
+import { generateNodeId } from "../utils";
+import { EDGE_STYLES, NODE_SPACING } from "../constants";
 
 interface UseChatOptions {
   nodes: ChatFlowNode[];
@@ -38,12 +28,6 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   const cleanText = text.replace(conceptRegex, '').trim();
   
   return { concepts, cleanText };
-}
-
-// Generate unique IDs for nodes
-let nodeIdCounter = 0;
-function generateNodeId(): string {
-  return `node-${Date.now()}-${++nodeIdCounter}`;
 }
 
 export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
@@ -160,15 +144,12 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                 // Use childrenCreated counter for positioning to avoid race conditions
                 const childIndex = childrenCreated + index;
 
-                // Position nodes in a vertical column below parent
-                const verticalSpacing = 300;
-
                 newNodes.push({
                   id: childNodeId,
                   type: "chatNode",
                   position: {
                     x: currentNode.position.x,
-                    y: currentNode.position.y + (childIndex + 1) * verticalSpacing,
+                    y: currentNode.position.y + (childIndex + 1) * NODE_SPACING.conceptVertical,
                   },
                   data: {
                     prompt: `Explain ${concept.name}`,
@@ -198,7 +179,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                 target: childNodeId,
                 type: "smoothstep",
                 animated: false,
-                style: { stroke: "#10b981", strokeWidth: 2 },
+                style: EDGE_STYLES.concept,
               }));
 
               return [...prevEdges, ...newEdges];
@@ -242,5 +223,5 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
     [edges, buildConversationHistory, setNodes, setEdges]
   );
 
-  return { sendMessage, buildConversationHistory };
+  return { sendMessage };
 }

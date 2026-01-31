@@ -1,14 +1,10 @@
 import OpenAI from "openai";
 import type { Route } from "./+types/api.chat";
+import type { Message } from "../types";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
 
 interface ChatRequest {
   prompt: string;
