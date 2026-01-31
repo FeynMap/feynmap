@@ -11,7 +11,7 @@
 
 # Project Name
 
-> One-line description of your project
+FeynMap - An AI coach that makes you explain concepts, detects gaps in understanding, and shows your knowledge as an unlockable map.
 
 ## Tech Stack
 
