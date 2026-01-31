@@ -29,6 +29,27 @@ What technologies power your project?
 
 Step-by-step instructions to run the project locally, including everything that needs to be set up.
 
+### Install postgres and set up the databse:
+
+on mac:
+```
+brew install postgresql@18
+```
+
+Other platforms: https://www.postgresql.org/download/
+
+#### create a db
+```bash
+psql -U postgres
+
+CREATE DATABASE feynmap;
+
+```
+
+Then exit the psql shell.
+
+#### clone the repo and run it
+
 ```bash
 # Clone the repo
 git clone git@github.com:FeynMap/feynmap.git
