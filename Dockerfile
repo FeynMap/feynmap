@@ -1,22 +1,49 @@
-FROM node:20-alpine AS development-dependencies-env
-COPY . /app
-WORKDIR /app
-RUN npm ci
+# syntax = docker/dockerfile:1
 
-FROM node:20-alpine AS production-dependencies-env
-COPY ./package.json package-lock.json /app/
-WORKDIR /app
-RUN npm ci --omit=dev
+# Adjust NODE_VERSION as desired
+ARG NODE_VERSION=24.12.0
+FROM node:${NODE_VERSION}-slim AS base
 
-FROM node:20-alpine AS build-env
-COPY . /app/
-COPY --from=development-dependencies-env /app/node_modules /app/node_modules
-WORKDIR /app
-RUN npm run build
+LABEL fly_launch_runtime="Node.js"
 
-FROM node:20-alpine
-COPY ./package.json package-lock.json server.js /app/
-COPY --from=production-dependencies-env /app/node_modules /app/node_modules
-COPY --from=build-env /app/build /app/build
+# Node.js app lives here
 WORKDIR /app
-CMD ["npm", "run", "start"]
+
+# Set production environment
+ENV NODE_ENV="production"
+
+# Install pnpm
+ARG PNPM_VERSION=10.27.0
+RUN npm install -g pnpm@$PNPM_VERSION
+
+
+# Throw-away build stage to reduce size of final image
+FROM base AS build
+
+# Install packages needed to build node modules
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y build-essential node-gyp pkg-config python-is-python3
+
+# Install node modules
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Copy application code
+COPY . .
+
+# Build application
+RUN pnpm run build
+
+# Remove development dependencies
+RUN pnpm prune --prod
+
+
+# Final stage for app image
+FROM base
+
+# Copy built application
+COPY --from=build /app /app
+
+# Start the server by default, this can be overwritten at runtime
+EXPOSE 3000
+CMD [ "pnpm", "run", "start" ]
