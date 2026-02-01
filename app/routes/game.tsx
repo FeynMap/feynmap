@@ -1,5 +1,6 @@
 import type { Route } from "./+types/game";
 import { ConceptCanvas } from "../components/ConceptCanvas";
+import "../game.css";
 
 export function meta({}: Route.MetaArgs) {
   return [
