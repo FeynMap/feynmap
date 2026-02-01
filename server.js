@@ -1,3 +1,4 @@
+import "dotenv/config";
 import compression from "compression";
 import express from "express";
 import morgan from "morgan";
@@ -17,6 +18,10 @@ if (DEVELOPMENT) {
   const viteDevServer = await import("vite").then((vite) =>
     vite.createServer({
       server: { middlewareMode: true },
+      hmr: {
+        port: Number.parseInt(process.env.VITE_HMR_PORT || "24679"),
+        clientPort: Number.parseInt(process.env.VITE_HMR_PORT || "24679"),
+      },
     }),
   );
   app.use(viteDevServer.middlewares);
