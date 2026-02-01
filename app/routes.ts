@@ -5,7 +5,7 @@ export default [
   index("routes/home.tsx"),
   route("chat", "routes/chat.tsx"),
   route("api/chat", "routes/api.chat.ts"),
-  route("canvas", "routes/canvas.tsx"),
+  route("game", "routes/game.tsx"),
   route("api/generate-map", "routes/api.generate-map.ts"),
   route("api/explain", "routes/api.explain.ts"),
   route("api/score", "routes/api.score.ts"),
