@@ -1,62 +1,354 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Controls,
   Background,
   BackgroundVariant,
+  Panel,
   useNodesState,
   useEdgesState,
   addEdge,
-  type Node,
+  useReactFlow,
   type Edge,
   type Connection,
 } from "@xyflow/react";
+// @ts-expect-error - d3-hierarchy types will be added later
+import { stratify, tree } from "d3-hierarchy";
 import "@xyflow/react/dist/style.css";
 
-import { ChatNode, type ChatNodeData } from "./ChatNode";
+import { ChatNode } from "./ChatNode";
 import { useChat } from "../hooks/useChat";
+import { generateNodeId } from "../utils";
+import { EDGE_STYLES } from "../constants";
+import { ChatCallbackContext } from "../contexts/ChatCallbackContext";
+import type { ChatFlowNode, ChatCallbacks } from "../types";
 
-// Type for our custom node
-type ChatFlowNode = Node<ChatNodeData, "chatNode">;
+// Define outside component to prevent re-creation on renders
+const nodeTypes = { chatNode: ChatNode };
+const fitViewOptions = { padding: 0.5 };
+const defaultEdgeOptions = {
+  type: "smoothstep" as const,
+  style: EDGE_STYLES.default,
+};
 
-// Generate unique IDs
-let nodeIdCounter = 0;
-function generateNodeId(): string {
-  return `node-${++nodeIdCounter}`;
-}
+// Create tree layout - will configure separation dynamically
+const g = tree();
 
-// Calculate position for a new child node
-function calculateChildPosition(
-  parentNode: ChatFlowNode,
-  existingChildren: ChatFlowNode[]
-): { x: number; y: number } {
-  const parentX = parentNode.position.x;
-  const parentY = parentNode.position.y;
-  const childCount = existingChildren.length;
+// Layout nodes using d3-hierarchy
+const getLayoutedElements = (
+  nodes: ChatFlowNode[],
+  edges: Edge[]
+): { nodes: ChatFlowNode[]; edges: Edge[] } => {
+  if (nodes.length === 0) return { nodes, edges };
 
-  // Offset children horizontally based on how many siblings exist
-  const horizontalSpacing = 450;
-  const verticalSpacing = 350;
+  try {
+    // Measure actual node dimensions from the DOM
+    // Store individual measurements for each node
+    const nodeDimensions = new Map<string, { width: number; height: number }>();
+    
+    nodes.forEach((node) => {
+      // Find the actual node element by looking for the chat-node class
+      const element = document.querySelector(`[data-id="${node.id}"] .chat-node`) as HTMLElement;
+      let width = 840;
+      let height = 250;
+      
+      if (element) {
+        // Use offsetHeight which gives the actual rendered height including padding
+        width = element.offsetWidth || 840;
+        height = element.offsetHeight || 250;
+        
+        // Add a small buffer to account for borders/shadows (10px)
+        height = height + 10;
+        
+        // Clamp to minimum/maximum reasonable values
+        width = Math.max(300, Math.min(width, 1100));
+        height = Math.max(150, Math.min(height, 2000));
+      }
+      
+      nodeDimensions.set(node.id, { width, height });
+    });
 
-  return {
-    x: parentX + childCount * horizontalSpacing,
-    y: parentY + verticalSpacing,
-  };
-}
+    const hierarchy = stratify<ChatFlowNode>()
+      .id((node: ChatFlowNode) => node.id)
+      .parentId((node: ChatFlowNode) => edges.find((edge) => edge.target === node.id)?.source);
 
-export function ChatCanvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([]);
+    const root = hierarchy(nodes);
+    
+    // Store dimensions on each node in the hierarchy
+    root.each((node: any) => {
+      const dims = nodeDimensions.get(node.data.id);
+      if (dims) {
+        node.nodeWidth = dims.width;
+        node.nodeHeight = dims.height;
+      }
+    });
+    
+    // Constant gap between depth levels
+    const depthGap = 120;
+    
+    // Use size() with separation for dynamic spacing
+    // separation() returns the gap between siblings relative to a unit distance
+    const layout = g
+      .size([2000, 2000]) // Large canvas, will adjust positions after
+      .separation((a: any, b: any) => {
+        // Calculate separation based on the widths of both nodes (siblings spread horizontally)
+        const aWidth = a.nodeWidth || 840;
+        const bWidth = b.nodeWidth || 840;
+        
+        // Distance needed = half of each node's width + 15% padding
+        const distanceNeeded = (aWidth / 2) * 1.15 + (bWidth / 2) * 1.15;
+        
+        // Return as ratio (will be scaled by layout)
+        return distanceNeeded / 500; // Divide by reasonable base for horizontal spread
+      })(root);
+
+    // First pass: get initial positions from d3 (natural top-to-bottom orientation)
+    const initialNodes = layout.descendants().map((node: any) => ({
+      ...node.data,
+      position: { x: node.x, y: node.y }, // Keep natural d3 orientation (top-to-bottom)
+      depth: node.depth,
+    }));
+    
+    // Group by depth (vertical level)
+    const nodesByDepth = new Map<number, any[]>();
+    initialNodes.forEach((node: any) => {
+      if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
+      nodesByDepth.get(node.depth)!.push(node);
+    });
+    
+    // Calculate vertical positions for each depth level
+    // Each level should be positioned based on the max height of the previous level + constant gap
+    const depthYPositions = new Map<number, number>();
+    let cumulativeY = 50; // Start position for root
+    const maxDepth = Math.max(...Array.from(nodesByDepth.keys()));
+    
+    for (let depth = 0; depth <= maxDepth; depth++) {
+      depthYPositions.set(depth, cumulativeY);
+      
+      // Calculate max height at this depth for the next level
+      const nodesAtDepth = nodesByDepth.get(depth) || [];
+      const maxHeightAtDepth = Math.max(
+        ...nodesAtDepth.map((n: any) => {
+          const dims = nodeDimensions.get(n.id);
+          return dims?.height || 250;
+        })
+      );
+      
+      // Next level starts after this level's max height + gap
+      cumulativeY += maxHeightAtDepth + depthGap;
+    }
+    
+    // Recalculate x positions for each depth to prevent horizontal overlaps
+    const layoutedNodes: any[] = [];
+    nodesByDepth.forEach((nodesAtDepth, depth) => {
+      // Sort by initial x position
+      nodesAtDepth.sort((a, b) => a.position.x - b.position.x);
+      
+      const yPosition = depthYPositions.get(depth) || 0;
+      
+      // Calculate proper positions with actual node widths
+      if (nodesAtDepth.length === 1) {
+        // Single node: center at 0 (position is top-left, so offset by half width)
+        const dims = nodeDimensions.get(nodesAtDepth[0].id);
+        const nodeWidth = dims?.width || 840;
+        layoutedNodes.push({
+          ...nodesAtDepth[0],
+          position: { 
+            x: -nodeWidth / 2,  // Top-left corner positioned so node is centered at x=0
+            y: yPosition  // Vertical position based on cumulative heights
+          }
+        });
+      } else {
+        // Multiple nodes: position with proper horizontal spacing
+        const totalWidth = nodesAtDepth.reduce((sum, n) => {
+          const dims = nodeDimensions.get(n.id);
+          return sum + (dims?.width || 840);
+        }, 0);
+        const gaps = nodesAtDepth.length - 1;
+        const gapSize = 20; // Gap between sibling nodes
+        const totalSpan = totalWidth + (gaps * gapSize);
+        
+        // Start from left (this is where the left edge of first node will be)
+        let currentX = -totalSpan / 2;
+        
+        nodesAtDepth.forEach((node, i) => {
+          const dims = nodeDimensions.get(node.id);
+          const nodeWidth = dims?.width || 840;
+          
+          layoutedNodes.push({
+            ...node,
+            position: {
+              x: currentX,  // This is the LEFT of the node (React Flow uses top-left corner)
+              y: yPosition  // Vertical position based on cumulative heights
+            }
+          });
+          
+          // Move to next node's left position
+          currentX += nodeWidth + gapSize;
+        });
+      }
+    });
+    
+
+    return {
+      nodes: layoutedNodes,
+      edges,
+    };
+  } catch (error) {
+    console.error("Layout error:", error);
+    return { nodes, edges };
+  }
+};
+
+// Generate initial node ID once at module level to avoid regenerating on re-renders
+const initialNodeId = generateNodeId();
+
+// Default node width for initial positioning (before DOM measurement)
+const DEFAULT_NODE_WIDTH = 840;
+
+function ChatCanvasInner() {
+  // Initialize with starter node inline instead of useEffect
+  // Position it centered at x=0 (matching the layout algorithm)
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([
+    {
+      id: initialNodeId,
+      type: "chatNode",
+      position: { x: -DEFAULT_NODE_WIDTH / 2, y: 50 },
+      data: {
+        prompt: "",
+        response: "",
+        isLoading: false,
+        isInitial: true,
+      },
+    },
+  ]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const { fitView } = useReactFlow();
+  const layoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Global concept map to track all concepts added to the canvas
+  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(new Set());
+  
+  // Use a ref to always have access to the latest knownConcepts without closure issues
+  const knownConceptsRef = useRef<Set<string>>(knownConcepts);
+  useEffect(() => {
+    knownConceptsRef.current = knownConcepts;
+  }, [knownConcepts]);
+  
+  // Helper function to normalize concept names for comparison
+  const normalizeConcept = useCallback((concept: string): string => {
+    return concept
+      .toLowerCase()
+      .replace(/\s+/g, ' ') // Normalize whitespace (multiple spaces → single space)
+      .trim();
+  }, []);
+  
+  // Function to add a concept to the global map
+  const addKnownConcept = useCallback((concept: string) => {
+    const normalized = normalizeConcept(concept);
+    if (normalized) { // Only add non-empty concepts
+      setKnownConcepts((prev) => new Set(prev).add(normalized));
+    }
+  }, [normalizeConcept]);
+  
+  // Refs to avoid stale closures in layout functions
+  const nodesRef = useRef<ChatFlowNode[]>(nodes);
+  const edgesRef = useRef<Edge[]>(edges);
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
 
-  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges });
+  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept });
 
-  // Handle expanding a concept node to get full explanation
+  // Simple function to apply layout - reads from refs to avoid stale closures
+  const doLayout = useCallback(() => {
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    
+    if (currentNodes.length === 0) return;
+    
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      currentNodes,
+      currentEdges
+    );
+    
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
+    
+    // Don't change viewport - keep it where the user positioned it
+  }, [setNodes, setEdges]);
+
+  // Debounced layout trigger - no stale closure issues since doLayout uses refs
+  const triggerLayout = useCallback((delayMs = 300) => {
+    if (layoutTimeoutRef.current) {
+      clearTimeout(layoutTimeoutRef.current);
+    }
+    
+    layoutTimeoutRef.current = setTimeout(() => {
+      // Wait for one animation frame to ensure DOM is rendered
+      requestAnimationFrame(() => {
+        doLayout();
+      });
+    }, delayMs);
+  }, [doLayout]);
+
+  // Manual layout button handler
+  const onLayout = useCallback(() => {
+    // Wait one frame to ensure any pending DOM updates are complete
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        doLayout();
+      });
+    });
+  }, [doLayout]);
+
+  // Consolidated layout effect: triggers on count changes or when loading finishes
+  const prevStateRef = useRef<{ nodeCount: number; edgeCount: number; loadingIds: Set<string> }>({
+    nodeCount: 0,
+    edgeCount: 0,
+    loadingIds: new Set(),
+  });
+  
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    const currentLoadingIds = new Set(nodes.filter(n => n.data.isLoading).map(n => n.id));
+    
+    let needsLayout = false;
+    
+    // Skip layout for the single initial empty root node
+    const isSingleInitialNode = nodes.length === 1 && nodes[0]?.data.isInitial && !nodes[0]?.data.prompt;
+    
+    // Check if node/edge count changed
+    if (nodes.length !== prev.nodeCount || edges.length !== prev.edgeCount) {
+      needsLayout = !isSingleInitialNode; // Don't layout the initial empty node
+    }
+    
+    // Check if any node just finished loading
+    for (const id of prev.loadingIds) {
+      if (!currentLoadingIds.has(id)) {
+        needsLayout = true;
+        break;
+      }
+    }
+    
+    // Update ref
+    prevStateRef.current = {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      loadingIds: currentLoadingIds,
+    };
+    
+    if (needsLayout) {
+      triggerLayout(200);
+    }
+  }, [nodes, edges, triggerLayout]);
+
+  // Handle expanding a concept node - first show pre-question
   const handleExpand = useCallback(
     async (nodeId: string) => {
-      const currentNode = nodes.find((n) => n.id === nodeId);
-      if (!currentNode) return;
-
-      // Mark the node as expanded and loading
+      // Set node to awaiting pre-question state
       setNodes((prevNodes) =>
         prevNodes.map((node) =>
           node.id === nodeId
@@ -64,7 +356,30 @@ export function ChatCanvas() {
                 ...node,
                 data: {
                   ...node.data,
+                  awaitingPreQuestion: true,
                   expanded: true,
+                },
+              }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Handle pre-question answer submission
+  const handlePreQuestionSubmit = useCallback(
+    async (nodeId: string, answer: string) => {
+      // Save the answer and start loading
+      setNodes((prevNodes) =>
+        prevNodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  awaitingPreQuestion: false,
+                  preQuestionAnswer: answer,
                   isLoading: true,
                 },
               }
@@ -72,23 +387,33 @@ export function ChatCanvas() {
         )
       );
 
-      // Send message to get full explanation
-      await sendMessage(nodeId, currentNode.data.prompt);
+      // Get the concept name and prompt for this node
+      const currentNode = nodes.find((n) => n.id === nodeId);
+      if (currentNode?.data.prompt) {
+        // Send message with pre-question context
+        await sendMessage(nodeId, currentNode.data.prompt, undefined, answer);
+      }
     },
-    [nodes, setNodes, sendMessage]
+    [setNodes, nodes, sendMessage]
   );
 
   // Handle submitting a message from a node
   const handleSubmit = useCallback(
     async (nodeId: string, prompt: string) => {
-      const currentNode = nodes.find((n) => n.id === nodeId);
-      if (!currentNode) return;
-
-      // Check if this is the initial node (no prompt yet)
-      if (currentNode.data.isInitial && !currentNode.data.prompt) {
-        // Update the initial node with the prompt and start loading
-        setNodes((prevNodes) =>
-          prevNodes.map((node) =>
+      // Use functional update to check node state and avoid stale closure
+      let isInitialNode = false;
+      let hasNoPrompt = false;
+      
+      setNodes((prevNodes) => {
+        const currentNode = prevNodes.find((n) => n.id === nodeId);
+        if (!currentNode) return prevNodes;
+        
+        isInitialNode = !!currentNode.data.isInitial;
+        hasNoPrompt = !currentNode.data.prompt;
+        
+        if (isInitialNode && hasNoPrompt) {
+          // Update the initial node with the prompt and start loading
+          return prevNodes.map((node) =>
             node.id === nodeId
               ? {
                   ...node,
@@ -100,33 +425,27 @@ export function ChatCanvas() {
                   },
                 }
               : node
-          )
-        );
+          );
+        }
+        return prevNodes;
+      });
 
-        // Send the message
+      if (isInitialNode && hasNoPrompt) {
+        // Send the message for initial node
         await sendMessage(nodeId, prompt);
       } else {
         // This is a follow-up - create a new child node
-        const existingChildren = nodes.filter((n) => {
-          const edge = edges.find(
-            (e) => e.source === nodeId && e.target === n.id
-          );
-          return !!edge;
-        });
-
         const newNodeId = generateNodeId();
-        const newPosition = calculateChildPosition(currentNode, existingChildren);
 
-        // Create new node
+        // Create new node with temporary position (will be updated by layout)
         const newNode: ChatFlowNode = {
           id: newNodeId,
           type: "chatNode",
-          position: newPosition,
+          position: { x: 0, y: 0 },
           data: {
             prompt,
             response: "",
             isLoading: true,
-            onSubmit: handleSubmit,
           },
         };
 
@@ -137,7 +456,7 @@ export function ChatCanvas() {
           target: newNodeId,
           type: "smoothstep",
           animated: false,
-          style: { stroke: "#3b82f6", strokeWidth: 2 },
+          style: EDGE_STYLES.default,
         };
 
         setNodes((prevNodes) => [...prevNodes, newNode]);
@@ -147,85 +466,66 @@ export function ChatCanvas() {
         await sendMessage(newNodeId, prompt, nodeId);
       }
     },
-    [nodes, edges, setNodes, setEdges, sendMessage]
+    [setNodes, setEdges, sendMessage]
   );
 
-  // Initialize with a starter node if empty
-  const initializedNodes = useMemo(() => {
-    if (nodes.length === 0) {
-      const initialNode: ChatFlowNode = {
-        id: generateNodeId(),
-        type: "chatNode",
-        position: { x: 250, y: 50 },
-        data: {
-          prompt: "",
-          response: "",
-          isLoading: false,
-          isInitial: true,
-          onSubmit: handleSubmit,
-          onExpand: handleExpand,
-        },
-      };
-      // Use setTimeout to avoid setting state during render
-      setTimeout(() => setNodes([initialNode]), 0);
-      return [initialNode];
-    }
-    // Update onSubmit and onExpand callbacks for all nodes
-    return nodes.map((node) => ({
-      ...node,
-      data: {
-        ...node.data,
-        onSubmit: handleSubmit,
-        onExpand: handleExpand,
-      },
-    }));
-  }, [nodes, handleSubmit, handleExpand, setNodes]);
 
-  // Define custom node types
-  const nodeTypes = useMemo(
+  // Memoize callbacks for context to prevent unnecessary re-renders
+  const chatCallbacks = useMemo<ChatCallbacks>(
     () => ({
-      chatNode: ChatNode,
+      onSubmit: handleSubmit,
+      onExpand: handleExpand,
+      onPreQuestionSubmit: handlePreQuestionSubmit,
     }),
-    []
+    [handleSubmit, handleExpand, handlePreQuestionSubmit]
   );
 
+
+  // Simplified - defaultEdgeOptions prop applies styling automatically
   const onConnect = useCallback(
-    (connection: Connection) => {
-      setEdges((eds) =>
-        addEdge(
-          {
-            ...connection,
-            type: "smoothstep",
-            style: { stroke: "#3b82f6", strokeWidth: 2 },
-          },
-          eds
-        )
-      );
-    },
+    (connection: Connection) => setEdges((eds) => addEdge(connection, eds)),
     [setEdges]
   );
 
   return (
-    <div className="w-full h-screen">
-      <ReactFlow
-        nodes={initializedNodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.5 }}
-        minZoom={0.1}
-        maxZoom={2}
-        defaultEdgeOptions={{
-          type: "smoothstep",
-          style: { stroke: "#3b82f6", strokeWidth: 2 },
-        }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls />
-      </ReactFlow>
-    </div>
+    <ChatCallbackContext.Provider value={chatCallbacks}>
+      <div className="w-full h-screen">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={fitViewOptions}
+          minZoom={0.1}
+          maxZoom={2}
+          defaultEdgeOptions={defaultEdgeOptions}
+          nodesDraggable={true}
+          nodesConnectable={false}
+          elementsSelectable={true}
+        >
+          <Panel position="top-center">
+            <button
+              onClick={onLayout}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors shadow-lg"
+            >
+              Recalculate Layout
+            </button>
+          </Panel>
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Controls />
+        </ReactFlow>
+      </div>
+    </ChatCallbackContext.Provider>
+  );
+}
+
+export function ChatCanvas() {
+  return (
+    <ReactFlowProvider>
+      <ChatCanvasInner />
+    </ReactFlowProvider>
   );
 }
