@@ -21,34 +21,12 @@ What technologies power your project?
 
 - **Frontend**: React-Router v7
 - **Backend**: React-Router v7
-- **Database**: PostgreSQL
-- **AI/ML**: e.g., OpenAI GPT-4, Gemini Pro
+- **AI/ML**: OpenAI GPT-4
 - **Hosting**: fly.io
 
 ## How to Run
 
-Step-by-step instructions to run the project locally, including everything that needs to be set up.
-
-### Install postgres and set up the databse:
-
-on mac:
-```
-brew install postgresql@18
-```
-
-Other platforms: https://www.postgresql.org/download/
-
-#### create a db
-```bash
-psql -U postgres
-
-CREATE DATABASE feynmap;
-
-```
-
-Then exit the psql shell.
-
-#### clone the repo and run it
+Step-by-step instructions to run the project locally.
 
 ```bash
 # Clone the repo
@@ -62,10 +40,7 @@ pnpm install
 
 # Set up environment variables
 cp .env.example .env
-# Add your API keys to .env
-
-# setup db
-pnpm db:migrate
+# Add your OpenAI API key to .env
 
 # Run the development server
 pnpm dev

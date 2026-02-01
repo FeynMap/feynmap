@@ -41,8 +41,8 @@ FeynMap is an AI learning coach that turns a topic into a small concept map, tea
   - Feedback restates the learner’s explanation in simpler words, then lists exact gaps and a next step.
 
 ## Data and Persistence
-- Database scaffold exists (`database/`, `drizzle/`) with a sample guest book used in `app/routes/home.tsx`.
-- The learning flow does not currently persist sessions, scores, or maps to the database.
+- No database or persistence layer.
+- All sessions, scores, and maps are ephemeral (client-side only).
 
 ## Current Strengths
 - Clear product loop with a visible, motivating map.
@@ -51,11 +51,10 @@ FeynMap is an AI learning coach that turns a topic into a small concept map, tea
 - Structured explanation formatting improves readability and consistency.
 
 ## Current Gaps and Risks
-- No persistent user progress, map history, or session tracking.
+- No persistent user progress, map history, or session tracking (by design - fully ephemeral).
 - Evaluation feedback is strict but still only returns score + text; no structured gap list in UI.
 - Related concepts are generated without access to existing map context (risk of overlap).
 - Limited guardrails for hallucinated or off-topic explanations.
-- Home route is still a template guest book; product entry is via `/canvas`.
 
 ## Product Evaluation (Strict Feynman Lens)
 - The app already matches the Feynman loop, but strictness must stay high:
@@ -68,14 +67,11 @@ FeynMap is an AI learning coach that turns a topic into a small concept map, tea
   - Keep the map small and focused so progress feels meaningful.
 
 ## Suggested Next Steps (Non-Blocking)
-- Persist sessions and node scores (per topic) in the database.
 - Add UI hints for “jargon detected” or “missing key point” without cluttering the chat.
 - Track and avoid duplicate related concepts by referencing current node labels.
-- Add a lightweight onboarding flow and redirect `/` to `/canvas`.
+- Add a lightweight onboarding flow.
 
 ## Run Locally (from README)
-1. Install and configure PostgreSQL.
-2. `pnpm install`
-3. `cp .env.example .env` and add API keys
-4. `pnpm db:migrate`
-5. `pnpm dev`
+1. `pnpm install`
+2. `cp .env.example .env` and add OpenAI API key
+3. `pnpm dev`
