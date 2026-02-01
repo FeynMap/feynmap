@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
+import { ChatListPanel, type ChatListItem } from "./ChatListPanel";
 
 // Format explanation text with proper styling for structured content
 function formatExplanation(text: string): React.ReactNode {
@@ -188,6 +189,13 @@ export interface ChatMessage {
   onReadyToExplain?: () => void;
 }
 
+export interface ConceptChatChatListProps {
+  chats: ChatListItem[];
+  activeChatId: string | null;
+  onSelectChat: (id: string) => void;
+  onNewChat: () => void;
+}
+
 interface ConceptChatProps {
   topic: string | null;
   onTopicSubmit: (topic: string) => void;
@@ -201,6 +209,8 @@ interface ConceptChatProps {
   nextConceptSuggestion: { id: string; name: string } | null;
   onLearnNext: (conceptId: string) => void;
   isReadyToExplain: boolean;
+  /** When provided (Game mode), render chat list below header in Game style. */
+  chatList?: ConceptChatChatListProps | null;
 }
 
 export function ConceptChat({
@@ -213,6 +223,7 @@ export function ConceptChat({
   nextConceptSuggestion,
   onLearnNext,
   isReadyToExplain,
+  chatList,
 }: ConceptChatProps) {
   const [inputValue, setInputValue] = useState("");
   const [topicInput, setTopicInput] = useState("");
@@ -557,7 +568,7 @@ export function ConceptChat({
   if (!topic) {
     return (
       <div className="h-full flex flex-col bg-[#343541] border-r border-[#565869]">
-        <div className="p-6 border-b border-[#565869]">
+        <div className="p-6 border-b border-[#565869] shrink-0">
           <h2 className="text-xl font-semibold text-white">
             Start Learning
           </h2>
@@ -565,7 +576,19 @@ export function ConceptChat({
             Enter a topic to begin
           </p>
         </div>
-        <div className="flex-1 flex items-center justify-center p-6">
+        {chatList && (
+          <div className="shrink-0 max-h-[35%] min-h-0 flex flex-col overflow-hidden border-b border-[#565869]">
+            <ChatListPanel
+              chats={chatList.chats}
+              activeChatId={chatList.activeChatId}
+              onSelectChat={chatList.onSelectChat}
+              onNewChat={chatList.onNewChat}
+              compact
+              variant="game"
+            />
+          </div>
+        )}
+        <div className="flex-1 flex items-center justify-center p-6 min-h-0">
           <form onSubmit={handleTopicSubmit} className="w-full max-w-2xl">
             <div className="relative">
               <input
@@ -609,6 +632,19 @@ export function ConceptChat({
           {topic}
         </h2>
       </div>
+
+      {chatList && (
+        <div className="shrink-0 max-h-[28%] min-h-0 flex flex-col overflow-hidden border-b border-[#565869]">
+          <ChatListPanel
+            chats={chatList.chats}
+            activeChatId={chatList.activeChatId}
+            onSelectChat={chatList.onSelectChat}
+            onNewChat={chatList.onNewChat}
+            compact
+            variant="game"
+          />
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 min-h-0">

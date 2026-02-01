@@ -5,7 +5,6 @@ import {
   Controls,
   Background,
   BackgroundVariant,
-  Panel,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -23,6 +22,7 @@ import { generateNodeId } from "../utils";
 import { EDGE_STYLES } from "../constants";
 import { ChatCallbackContext } from "../contexts/ChatCallbackContext";
 import type { ChatFlowNode, ChatCallbacks } from "../types";
+import type { ExpertSession } from "../utils/expert-storage";
 
 // Define outside component to prevent re-creation on renders
 const nodeTypes = { chatNode: ChatNode };
@@ -201,18 +201,13 @@ const getLayoutedElements = (
   }
 };
 
-// Generate initial node ID once at module level to avoid regenerating on re-renders
-const initialNodeId = generateNodeId();
-
-// Default node width for initial positioning (before DOM measurement)
 const DEFAULT_NODE_WIDTH = 840;
 
-function ChatCanvasInner() {
-  // Initialize with starter node inline instead of useEffect
-  // Position it centered at x=0 (matching the layout algorithm)
-  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([
+function getDefaultInitialNodes(): ChatFlowNode[] {
+  const id = generateNodeId();
+  return [
     {
-      id: initialNodeId,
+      id,
       type: "chatNode",
       position: { x: -DEFAULT_NODE_WIDTH / 2, y: 50 },
       data: {
@@ -222,13 +217,30 @@ function ChatCanvasInner() {
         isInitial: true,
       },
     },
-  ]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  ];
+}
+
+interface ChatCanvasInnerProps {
+  initialSession?: ExpertSession | null;
+  onSessionChange?: (session: ExpertSession) => void;
+}
+
+function ChatCanvasInner({ initialSession, onSessionChange }: ChatCanvasInnerProps) {
+  const defaultInitial = useMemo(() => getDefaultInitialNodes(), []);
+  const initialNodes = initialSession?.nodes?.length
+    ? initialSession.nodes
+    : defaultInitial;
+  const initialEdges = initialSession?.edges ?? [];
+  const initialKnownConcepts = initialSession?.knownConcepts?.length
+    ? new Set(initialSession.knownConcepts)
+    : new Set<string>();
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges);
   const { fitView } = useReactFlow();
   const layoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Global concept map to track all concepts added to the canvas
-  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(new Set());
+  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(initialKnownConcepts);
   
   // Use a ref to always have access to the latest knownConcepts without closure issues
   const knownConceptsRef = useRef<Set<string>>(knownConcepts);
@@ -259,6 +271,24 @@ function ChatCanvasInner() {
     nodesRef.current = nodes;
     edgesRef.current = edges;
   }, [nodes, edges]);
+
+  // Persist session to parent (debounced)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!onSessionChange) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      onSessionChange({
+        nodes,
+        edges,
+        knownConcepts: Array.from(knownConcepts),
+      });
+    }, 400);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [nodes, edges, knownConcepts, onSessionChange]);
 
   const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept });
 
@@ -514,10 +544,18 @@ function ChatCanvasInner() {
   );
 }
 
-export function ChatCanvas() {
+export interface ChatCanvasProps {
+  initialSession?: ExpertSession | null;
+  onSessionChange?: (session: ExpertSession) => void;
+}
+
+export function ChatCanvas({ initialSession, onSessionChange }: ChatCanvasProps = {}) {
   return (
     <ReactFlowProvider>
-      <ChatCanvasInner />
+      <ChatCanvasInner
+        initialSession={initialSession}
+        onSessionChange={onSessionChange}
+      />
     </ReactFlowProvider>
   );
 }
