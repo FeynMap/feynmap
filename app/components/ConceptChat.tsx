@@ -646,8 +646,8 @@ export function ConceptChat({
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 min-h-0">
+      {/* Messages - same scrollbar style as chat list in Game mode */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 min-h-0 chat-list-scroll-game">
         {messages.map((message, index) => (
           <div
             key={index}
@@ -868,7 +868,7 @@ export function ConceptChat({
                 placeholder="Explain what you know..."
                 disabled={isScoring || !activeConcept || isTranscribing || isRecording}
                 rows={1}
-                className={`w-full px-4 py-3 pr-24 bg-[#40414f] border rounded-2xl focus:outline-none text-white placeholder-gray-500 resize-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[52px] max-h-[200px] overflow-y-auto ${
+                className={`w-full px-4 py-3 pr-24 bg-[#40414f] border rounded-2xl focus:outline-none text-white placeholder-gray-500 resize-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[52px] max-h-[200px] overflow-y-auto chat-list-scroll-game ${
                   isRecording ? 'border-[#19c37d] opacity-0' : 'border-[#565869] focus:border-[#8e8ea0]'
                 }`}
                 style={{
