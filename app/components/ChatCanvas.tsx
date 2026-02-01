@@ -345,36 +345,56 @@ function ChatCanvasInner() {
     }
   }, [nodes, edges, triggerLayout]);
 
-  // Handle expanding a concept node to get full explanation
+  // Handle expanding a concept node - first show pre-question
   const handleExpand = useCallback(
     async (nodeId: string) => {
-      // Use functional update to get current node state
-      let nodePrompt = "";
-      setNodes((prevNodes) => {
-        const currentNode = prevNodes.find((n) => n.id === nodeId);
-        if (currentNode) {
-          nodePrompt = currentNode.data.prompt;
-        }
-        return prevNodes.map((node) =>
+      // Set node to awaiting pre-question state
+      setNodes((prevNodes) =>
+        prevNodes.map((node) =>
           node.id === nodeId
             ? {
                 ...node,
                 data: {
                   ...node.data,
+                  awaitingPreQuestion: true,
                   expanded: true,
+                },
+              }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Handle pre-question answer submission
+  const handlePreQuestionSubmit = useCallback(
+    async (nodeId: string, answer: string) => {
+      // Save the answer and start loading
+      setNodes((prevNodes) =>
+        prevNodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  awaitingPreQuestion: false,
+                  preQuestionAnswer: answer,
                   isLoading: true,
                 },
               }
             : node
-        );
-      });
+        )
+      );
 
-      // Send message to get full explanation
-      if (nodePrompt) {
-        await sendMessage(nodeId, nodePrompt);
+      // Get the concept name and prompt for this node
+      const currentNode = nodes.find((n) => n.id === nodeId);
+      if (currentNode?.data.prompt) {
+        // Send message with pre-question context
+        await sendMessage(nodeId, currentNode.data.prompt, undefined, answer);
       }
     },
-    [setNodes, sendMessage]
+    [setNodes, nodes, sendMessage]
   );
 
   // Handle submitting a message from a node
@@ -455,8 +475,9 @@ function ChatCanvasInner() {
     () => ({
       onSubmit: handleSubmit,
       onExpand: handleExpand,
+      onPreQuestionSubmit: handlePreQuestionSubmit,
     }),
-    [handleSubmit, handleExpand]
+    [handleSubmit, handleExpand, handlePreQuestionSubmit]
   );
 
 

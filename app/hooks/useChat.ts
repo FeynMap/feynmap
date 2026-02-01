@@ -38,6 +38,24 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   return { concepts, cleanText };
 }
 
+// Parse feedback and explanation from streaming text when there's a pre-question
+function parseFeedbackAndExplanation(text: string): { 
+  feedback: string; 
+  explanation: string; 
+  hasFeedback: boolean;
+} {
+  const feedbackRegex = /\[\[FEEDBACK\]\]([\s\S]*?)\[\[\/FEEDBACK\]\]/;
+  const match = text.match(feedbackRegex);
+  
+  if (match) {
+    const feedback = match[1].trim();
+    const explanation = text.replace(feedbackRegex, '').trim();
+    return { feedback, explanation, hasFeedback: true };
+  }
+  
+  return { feedback: '', explanation: text, hasFeedback: false };
+}
+
 export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept }: UseChatOptions) {
   // Build conversation history by traversing up the tree from a given node
   const buildConversationHistory = useCallback(
@@ -71,8 +89,9 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
 
   // Send a message and stream the response
   // parentNodeId is optional - pass it directly to avoid race conditions with edge state
+  // preQuestionAnswer is optional - includes user's prior knowledge for discovery phase
   const sendMessage = useCallback(
-    async (nodeId: string, prompt: string, parentNodeId?: string) => {
+    async (nodeId: string, prompt: string, parentNodeId?: string, preQuestionAnswer?: string) => {
       // Get conversation history from parent nodes (not including current node)
       // Use parentNodeId if provided, otherwise try to find it from edges
       const parentId = parentNodeId ?? edges.find((e) => e.target === nodeId)?.source;
@@ -94,6 +113,7 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
             prompt,
             conversationHistory,
             knownConcepts: Array.from(currentKnownConcepts),
+            preQuestionAnswer,
           }),
         });
 
@@ -119,10 +139,13 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
 
-          // Parse concepts from the accumulated response
-          const { concepts, cleanText } = parseSubConcepts(fullResponse);
+          // Parse feedback and explanation if this was a pre-question response
+          const { feedback, explanation, hasFeedback } = parseFeedbackAndExplanation(fullResponse);
+          
+          // Parse concepts from the explanation text (not from feedback)
+          const { concepts, cleanText } = parseSubConcepts(explanation);
 
-          // Update node with cleaned response
+          // Update node with cleaned response and feedback
           setNodes((prevNodes) =>
             prevNodes.map((node) =>
               node.id === nodeId
@@ -131,6 +154,7 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
                     data: {
                       ...node.data,
                       response: cleanText,
+                      priorKnowledgeFeedback: hasFeedback ? feedback : node.data.priorKnowledgeFeedback,
                     },
                   }
                 : node

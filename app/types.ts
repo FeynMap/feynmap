@@ -20,6 +20,9 @@ export interface ChatNodeData extends Record<string, unknown> {
   expanded?: boolean;
   conceptName?: string;
   conceptTeaser?: string;
+  awaitingPreQuestion?: boolean;
+  preQuestionAnswer?: string;
+  priorKnowledgeFeedback?: string;
 }
 
 export type ChatFlowNode = Node<ChatNodeData, "chatNode">;
@@ -28,4 +31,5 @@ export type ChatFlowNode = Node<ChatNodeData, "chatNode">;
 export interface ChatCallbacks {
   onSubmit: (nodeId: string, prompt: string) => void;
   onExpand: (nodeId: string) => void;
+  onPreQuestionSubmit: (nodeId: string, answer: string) => void;
 }
