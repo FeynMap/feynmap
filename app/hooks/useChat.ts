@@ -11,6 +11,7 @@ interface UseChatOptions {
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
   knownConceptsRef: React.RefObject<Set<string>>;
   addKnownConcept: (concept: string) => void;
+  onTitleGenerated?: (title: string) => void;
 }
 
 // Parse sub-concepts from streaming text
@@ -56,7 +57,21 @@ function parseFeedbackAndExplanation(text: string): {
   return { feedback: '', explanation: text, hasFeedback: false };
 }
 
-export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept }: UseChatOptions) {
+// Parse title from streaming text
+function parseTitle(text: string): { title: string | null; cleanText: string } {
+  const titleRegex = /\[\[TITLE:(.*?)\]\]/;
+  const match = text.match(titleRegex);
+  
+  if (match) {
+    const title = match[1].trim();
+    const cleanText = text.replace(titleRegex, '').trim();
+    return { title, cleanText };
+  }
+  
+  return { title: null, cleanText: text };
+}
+
+export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept, onTitleGenerated }: UseChatOptions) {
   // Build conversation history by traversing up the tree from a given node
   const buildConversationHistory = useCallback(
     (nodeId: string): Message[] => {
@@ -98,6 +113,9 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
       const conversationHistory = parentId
         ? buildConversationHistory(parentId)
         : [];
+      
+      // Check if this is a root node (first message in conversation)
+      const isRootNode = conversationHistory.length === 0;
 
       try {
         // Always get the latest known concepts from the ref to avoid stale closure values
@@ -114,6 +132,7 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
             conversationHistory,
             knownConcepts: Array.from(currentKnownConcepts),
             preQuestionAnswer,
+            isRootNode,
           }),
         });
 
@@ -130,6 +149,7 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
         let fullResponse = "";
         let lastConceptCount = 0;
         let childrenCreated = 0; // Track children created in this streaming session
+        let titleExtracted = false; // Track if we've already extracted and reported the title
 
         // Stream the response
         while (true) {
@@ -142,8 +162,17 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
           // Parse feedback and explanation if this was a pre-question response
           const { feedback, explanation, hasFeedback } = parseFeedbackAndExplanation(fullResponse);
           
-          // Parse concepts from the explanation text (not from feedback)
-          const { concepts, cleanText } = parseSubConcepts(explanation);
+          // Parse title if this is a root node
+          const { title, cleanText: textWithoutTitle } = parseTitle(explanation);
+          
+          // Parse concepts from the explanation text (not from feedback or title)
+          const { concepts, cleanText } = parseSubConcepts(textWithoutTitle);
+          
+          // If we found a title and haven't reported it yet, call the callback
+          if (title && !titleExtracted && onTitleGenerated) {
+            titleExtracted = true;
+            onTitleGenerated(title);
+          }
 
           // Update node with cleaned response and feedback
           setNodes((prevNodes) =>
@@ -287,7 +316,7 @@ export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, ad
         );
       }
     },
-    [edges, buildConversationHistory, setNodes, setEdges, knownConceptsRef, addKnownConcept]
+    [edges, buildConversationHistory, setNodes, setEdges, knownConceptsRef, addKnownConcept, onTitleGenerated]
   );
 
   return { sendMessage };

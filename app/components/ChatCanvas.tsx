@@ -18,7 +18,9 @@ import { stratify, tree } from "d3-hierarchy";
 import "@xyflow/react/dist/style.css";
 
 import { ChatNode } from "./ChatNode";
+import { SessionManager } from "./SessionManager";
 import { useChat } from "../hooks/useChat";
+import { useSessionPersistence } from "../hooks/useSessionPersistence";
 import { generateNodeId } from "../utils";
 import { EDGE_STYLES } from "../constants";
 import { ChatCallbackContext } from "../contexts/ChatCallbackContext";
@@ -208,6 +210,9 @@ const initialNodeId = generateNodeId();
 const DEFAULT_NODE_WIDTH = 840;
 
 function ChatCanvasInner() {
+  // State for session manager panel
+  const [isSessionPanelOpen, setIsSessionPanelOpen] = useState(false);
+  
   // Initialize with starter node inline instead of useEffect
   // Position it centered at x=0 (matching the layout algorithm)
   const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([
@@ -230,11 +235,31 @@ function ChatCanvasInner() {
   // Global concept map to track all concepts added to the canvas
   const [knownConcepts, setKnownConcepts] = useState<Set<string>>(new Set());
   
+  // Session persistence - this will auto-save and load sessions
+  const {
+    activeSessionId,
+    sessions,
+    createSession,
+    loadSession,
+    deleteSession,
+    renameSession,
+  } = useSessionPersistence({
+    nodes,
+    edges,
+    knownConcepts,
+    setNodes,
+    setEdges,
+    setKnownConcepts,
+  });
+  
   // Use a ref to always have access to the latest knownConcepts without closure issues
   const knownConceptsRef = useRef<Set<string>>(knownConcepts);
   useEffect(() => {
     knownConceptsRef.current = knownConcepts;
   }, [knownConcepts]);
+  
+  // Track if we've already resumed incomplete nodes to avoid double-triggering
+  const hasResumedRef = useRef(false);
   
   // Helper function to normalize concept names for comparison
   const normalizeConcept = useCallback((concept: string): string => {
@@ -260,7 +285,93 @@ function ChatCanvasInner() {
     edgesRef.current = edges;
   }, [nodes, edges]);
 
-  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept });
+  // Callback to auto-rename session when LLM generates a title
+  const handleTitleGenerated = useCallback((title: string) => {
+    if (activeSessionId) {
+      console.log(`[ChatCanvas] Auto-renaming session to: ${title}`);
+      renameSession(activeSessionId, title);
+    }
+  }, [activeSessionId, renameSession]);
+  
+  const { sendMessage } = useChat({ 
+    nodes, 
+    edges, 
+    setNodes, 
+    setEdges, 
+    knownConceptsRef, 
+    addKnownConcept,
+    onTitleGenerated: handleTitleGenerated,
+  });
+  
+  // Reset resume tracker when switching sessions and fit view
+  useEffect(() => {
+    hasResumedRef.current = false;
+    
+    // Fit view after session loads (small delay to ensure nodes are rendered)
+    const timer = setTimeout(() => {
+      fitView({ duration: 300 });
+    }, 150);
+    
+    return () => clearTimeout(timer);
+  }, [activeSessionId, fitView]);
+  
+  // Auto-resume incomplete messages after page refresh or session load
+  // This handles the case where user asks a question but page refreshes before AI responds
+  useEffect(() => {
+    // Only run once per session load
+    if (hasResumedRef.current) return;
+    
+    // Wait a tick to ensure session is fully loaded
+    const timer = setTimeout(() => {
+      // Find nodes that have a prompt but no response (incomplete conversations)
+      const incompleteNodes = nodes.filter(node => {
+        // Must have a prompt
+        if (!node.data.prompt) return false;
+        
+        // Must not have a response
+        if (node.data.response) return false;
+        
+        // Must not be loading (already being processed)
+        if (node.data.isLoading) return false;
+        
+        // Skip initial empty nodes
+        if (node.data.isInitial && !node.data.prompt) return false;
+        
+        // Skip unexpanded concept nodes
+        if (node.data.isSubConcept && !node.data.expanded) return false;
+        
+        // Skip nodes awaiting pre-question (user needs to answer first)
+        if (node.data.awaitingPreQuestion) return false;
+        
+        return true;
+      });
+      
+      if (incompleteNodes.length > 0) {
+        console.log(`[ChatCanvas] Auto-resuming ${incompleteNodes.length} incomplete conversation(s)`);
+        hasResumedRef.current = true;
+        
+        // Set all incomplete nodes to loading state first
+        setNodes((prevNodes) =>
+          prevNodes.map((node) =>
+            incompleteNodes.some(incomplete => incomplete.id === node.id)
+              ? { ...node, data: { ...node.data, isLoading: true } }
+              : node
+          )
+        );
+        
+        // Trigger sendMessage for each incomplete node
+        incompleteNodes.forEach((node) => {
+          // Find parent node for conversation context
+          const parentEdge = edges.find(e => e.target === node.id);
+          const parentId = parentEdge?.source;
+          
+          sendMessage(node.id, node.data.prompt, parentId, node.data.preQuestionAnswer);
+        });
+      }
+    }, 100); // Small delay to ensure session load is complete
+    
+    return () => clearTimeout(timer);
+  }, [nodes, edges, sendMessage, setNodes, activeSessionId]);
 
   // Simple function to apply layout - reads from refs to avoid stale closures
   const doLayout = useCallback(() => {
@@ -490,6 +601,39 @@ function ChatCanvasInner() {
   return (
     <ChatCallbackContext.Provider value={chatCallbacks}>
       <div className="w-full h-screen">
+        {/* Sessions Panel Button */}
+        <button
+          onClick={() => setIsSessionPanelOpen(!isSessionPanelOpen)}
+          className="absolute top-4 left-4 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:shadow-xl transition-shadow border border-gray-200 dark:border-gray-700"
+          title="Conversations"
+        >
+          <svg
+            className="w-5 h-5 text-gray-700 dark:text-gray-300"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
+
+        {/* Session Manager Sliding Panel */}
+        <SessionManager
+          isOpen={isSessionPanelOpen}
+          onClose={() => setIsSessionPanelOpen(false)}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onCreateSession={createSession}
+          onLoadSession={loadSession}
+          onDeleteSession={deleteSession}
+          onRenameSession={renameSession}
+        />
+        
         <ReactFlow
           nodes={nodes}
           edges={edges}
