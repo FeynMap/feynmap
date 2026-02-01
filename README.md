@@ -1,14 +1,3 @@
-# Cursor 2-Day AI Hackathon — Repo Template
-
-![Cursor 2-Day AI Hackathon](https://ai-beavers.com/_next/image?url=%2Fimages%2Fhackathon-hero-20012026.png&w=1920&q=75)
-
-**How to use this template:**
-1. Click "Use this template" → "Create a new repository"
-2. Name your repo and set it to **Public**
-3. Replace this section with your project name and description
-
----
-
 # FeynMap
 
 FeynMap - An AI coach that makes you explain concepts, detects gaps in understanding, and shows your knowledge as an unlockable map.
@@ -19,9 +8,9 @@ What technologies power your project?
 
 <!-- List your main technologies, frameworks, and services -->
 
-- **Frontend**: React-Router v7
+- **Frontend**: React-Router v7, react-flow
 - **Backend**: React-Router v7
-- **AI/ML**: OpenAI GPT-4
+- **AI/ML**: OpenAI GPT-5-mini
 - **Hosting**: fly.io
 
 ## How to Run
