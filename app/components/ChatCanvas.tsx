@@ -17,7 +17,9 @@ import { stratify, tree } from "d3-hierarchy";
 import "@xyflow/react/dist/style.css";
 
 import { ChatNode } from "./ChatNode";
+import { SessionManager } from "./SessionManager";
 import { useChat } from "../hooks/useChat";
+import { useSessionPersistence } from "../hooks/useSessionPersistence";
 import { generateNodeId } from "../utils";
 import { EDGE_STYLES } from "../constants";
 import { ChatCallbackContext } from "../contexts/ChatCallbackContext";
@@ -241,12 +243,33 @@ function ChatCanvasInner({ initialSession, onSessionChange }: ChatCanvasInnerPro
   const layoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const [knownConcepts, setKnownConcepts] = useState<Set<string>>(initialKnownConcepts);
+  const [isSessionPanelOpen, setIsSessionPanelOpen] = useState(false);
+  
+  // Session persistence - this will auto-save and load sessions
+  const {
+    activeSessionId,
+    sessions,
+    createSession,
+    loadSession,
+    deleteSession,
+    renameSession,
+  } = useSessionPersistence({
+    nodes,
+    edges,
+    knownConcepts,
+    setNodes,
+    setEdges,
+    setKnownConcepts,
+  });
   
   // Use a ref to always have access to the latest knownConcepts without closure issues
   const knownConceptsRef = useRef<Set<string>>(knownConcepts);
   useEffect(() => {
     knownConceptsRef.current = knownConcepts;
   }, [knownConcepts]);
+  
+  // Track if we've already resumed incomplete nodes to avoid double-triggering
+  const hasResumedRef = useRef(false);
   
   // Helper function to normalize concept names for comparison
   const normalizeConcept = useCallback((concept: string): string => {
@@ -520,6 +543,39 @@ function ChatCanvasInner({ initialSession, onSessionChange }: ChatCanvasInnerPro
   return (
     <ChatCallbackContext.Provider value={chatCallbacks}>
       <div className="w-full h-screen">
+        {/* Sessions Panel Button */}
+        <button
+          onClick={() => setIsSessionPanelOpen(!isSessionPanelOpen)}
+          className="absolute top-4 left-4 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:shadow-xl transition-shadow border border-gray-200 dark:border-gray-700"
+          title="Conversations"
+        >
+          <svg
+            className="w-5 h-5 text-gray-700 dark:text-gray-300"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
+
+        {/* Session Manager Sliding Panel */}
+        <SessionManager
+          isOpen={isSessionPanelOpen}
+          onClose={() => setIsSessionPanelOpen(false)}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onCreateSession={createSession}
+          onLoadSession={loadSession}
+          onDeleteSession={deleteSession}
+          onRenameSession={renameSession}
+        />
+        
         <ReactFlow
           nodes={nodes}
           edges={edges}

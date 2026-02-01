@@ -11,6 +11,7 @@ interface ChatRequest {
   conversationHistory: Message[];
   knownConcepts?: string[];
   preQuestionAnswer?: string;
+  isRootNode?: boolean;
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -20,7 +21,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const body: ChatRequest = await request.json();
-    const { prompt, conversationHistory = [], knownConcepts = [], preQuestionAnswer } = body;
+    const { prompt, conversationHistory = [], knownConcepts = [], preQuestionAnswer, isRootNode = false } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(JSON.stringify({ error: "Prompt is required" }), {
@@ -31,6 +32,11 @@ export async function action({ request }: Route.ActionArgs) {
 
     // Build system prompt with known concepts
     let systemPrompt = "You are a helpful assistant that explains concepts clearly. When explaining a topic, provide a clear explanation first. Then, identify 2-4 key related sub-concepts that the user might want to explore deeper.\n\nFormat each sub-concept using this EXACT syntax at the end of your response:\n\n[[CONCEPT:Name of Sub-Concept]]\nOne sentence teaser about this sub-concept\n[[/CONCEPT]]\n\nExample response:\n\"Neural networks learn by adjusting weights through a process called training. They consist of layers of interconnected nodes...\n\n[[CONCEPT:Gradient Descent]]\nThe optimization algorithm that helps neural networks learn by minimizing error.\n[[/CONCEPT]]\n\n[[CONCEPT:Backpropagation]]\nThe method for calculating how much each weight contributed to the error.\n[[/CONCEPT]]\"\n\nOnly include concepts if the topic is substantial enough to warrant exploration. For simple questions or clarifications, you can skip the concept markers.\n\n---\n\nDISCOVERY PHASE: If the user shares their prior knowledge about a topic before learning, you should:\n1. First provide brief, encouraging feedback on their understanding (2-3 sentences)\n2. Acknowledge what they got right\n3. Gently note any gaps or misconceptions\n4. Then provide the full explanation\n\nFormat feedback using this syntax:\n\n[[FEEDBACK]]\nYour feedback on their prior knowledge here (2-3 sentences, warm and encouraging)\n[[/FEEDBACK]]\n\nThen continue with the full explanation.\n\nExample with prior knowledge:\n\"[[FEEDBACK]]\nGreat start! You're right that neural networks involve layers of nodes. However, the key mechanism isn't just connecting them—it's about how they learn from data by adjusting connection weights. Let's explore this deeper.\n[[/FEEDBACK]]\n\nNeural networks are computational models inspired by biological neurons...\"";
+    
+    // Add title generation for root nodes (first message in a new conversation)
+    if (isRootNode) {
+      systemPrompt += "\n\n---\n\nIMPORTANT: Since this is the start of a new conversation, please also provide a short, descriptive title (3-6 words) for this conversation at the VERY END of your response using this format:\n\n[[TITLE:Your Title Here]]\n\nThe title should capture the main topic being discussed. Examples:\n- [[TITLE:Neural Networks Basics]]\n- [[TITLE:Understanding Quantum Computing]]\n- [[TITLE:Python Async Programming]]\n\nPlace the title marker at the very end, after all concepts.";
+    }
 
     
     if (knownConcepts.length > 0) {

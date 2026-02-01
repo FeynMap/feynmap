@@ -1,4 +1,4 @@
-import type { Node } from "@xyflow/react";
+import type { Node, Edge } from "@xyflow/react";
 
 export interface Message {
   role: "user" | "assistant";
@@ -32,4 +32,19 @@ export interface ChatCallbacks {
   onSubmit: (nodeId: string, prompt: string) => void;
   onExpand: (nodeId: string) => void;
   onPreQuestionSubmit: (nodeId: string, answer: string) => void;
+}
+
+// Session management types
+export interface Session {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastModifiedAt: string;
+  nodes: ChatFlowNode[];
+  edges: Edge[];
+  knownConcepts: string[];
+}
+
+export interface SessionsStorage {
+  [sessionId: string]: Session;
 }
