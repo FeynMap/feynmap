@@ -1,18 +1,6 @@
 import { useState, useCallback, memo } from "react";
 import { Handle, Position } from "@xyflow/react";
-
-export interface ChatNodeData extends Record<string, unknown> {
-  prompt: string;
-  response: string;
-  isLoading: boolean;
-  isInitial?: boolean;
-  isSubConcept?: boolean;
-  expanded?: boolean; // Whether a sub-concept has been expanded
-  conceptName?: string; // The name of the concept (for compact view)
-  conceptTeaser?: string; // The teaser text (for compact view)
-  onSubmit: (nodeId: string, prompt: string) => void;
-  onExpand?: (nodeId: string) => void; // Callback when expanding a concept
-}
+import type { ChatNodeData } from "../types";
 
 interface ChatNodeProps {
   id: string;
@@ -55,10 +43,13 @@ function ChatNodeComponent({ id, data }: ChatNodeProps) {
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        handleSubmit(e as unknown as React.FormEvent);
+        if (inputValue.trim() && !isLoading) {
+          onSubmit(id, inputValue.trim());
+          setInputValue("");
+        }
       }
     },
-    [handleSubmit]
+    [id, inputValue, isLoading, onSubmit]
   );
 
   // Render compact concept chip if it's a sub-concept that hasn't been expanded

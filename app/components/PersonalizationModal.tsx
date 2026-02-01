@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import type { SessionProfile } from "../types/sessionProfile";
 import {
   PERSONALIZATION_QUESTIONS,
-  ANALOGY_OPTIONS,
+  inferAnalogyDomainsFromProfession,
   type ProfileQuestion,
 } from "../types/sessionProfile";
 
@@ -29,14 +29,15 @@ function buildProfileFromForm(values: FormValues): SessionProfile {
       return null as SessionProfile[K];
     return cast(v);
   };
+  const profession = get("profession", (v) =>
+    typeof v === "string" ? v : null
+  );
   return {
     mindset: get("mindset", (v) =>
       v === "humanities" || v === "technical" || v === "mixed" ? v : null
     ),
-    profession: get("profession", (v) => (typeof v === "string" ? v : null)),
-    analogy_domains: get("analogy_domains", (v) =>
-      Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null
-    ),
+    profession,
+    analogy_domains: inferAnalogyDomainsFromProfession(profession),
     math_comfort: get("math_comfort", (v) =>
       v === "low" || v === "medium" || v === "high" ? v : null
     ),
@@ -144,7 +145,7 @@ export function PersonalizationModal({
           {step === "questions" && (
             <>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Answer 10 short questions so we can adapt explanations to your
+                Answer 9 short questions so we can adapt explanations to your
                 style. You can skip any question.
               </p>
               {PERSONALIZATION_QUESTIONS.map((q) => (
@@ -269,41 +270,6 @@ function QuestionField({
           placeholder="e.g. developer, teacher, student"
           className="w-full px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
-      </div>
-    );
-  }
-
-  // Analogy domains: up to 2 checkboxes
-  if (id === "analogy_domains") {
-    const selected = (Array.isArray(value) ? value : []) as string[];
-    const toggle = (code: string) => {
-      if (selected.includes(code)) {
-        setValue(selected.filter((c) => c !== code));
-      } else if (selected.length < 2) {
-        setValue([...selected, code]);
-      }
-    };
-    return (
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {label}
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {ANALOGY_OPTIONS.map((opt) => (
-            <label
-              key={opt.value}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(opt.value)}
-                onChange={() => toggle(opt.value)}
-                className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
       </div>
     );
   }

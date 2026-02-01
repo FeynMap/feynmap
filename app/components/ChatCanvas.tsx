@@ -17,13 +17,12 @@ import { ChatNode, type ChatNodeData } from "./ChatNode";
 import { PersonalizationModal } from "./PersonalizationModal";
 import { useChat } from "../hooks/useChat";
 import type { SessionProfile } from "../types/sessionProfile";
+import { EDGE_STYLES, NODE_SPACING } from "../constants";
 
 const SESSION_PROFILE_KEY = "feynmap_session_profile";
 
-// Type for our custom node
 type ChatFlowNode = Node<ChatNodeData, "chatNode">;
 
-// Generate unique IDs
 let nodeIdCounter = 0;
 function generateNodeId(): string {
   return `node-${++nodeIdCounter}`;
@@ -38,13 +37,9 @@ function calculateChildPosition(
   const parentY = parentNode.position.y;
   const childCount = existingChildren.length;
 
-  // Offset children horizontally based on how many siblings exist
-  const horizontalSpacing = 450;
-  const verticalSpacing = 350;
-
   return {
-    x: parentX + childCount * horizontalSpacing,
-    y: parentY + verticalSpacing,
+    x: parentX + childCount * NODE_SPACING.horizontal,
+    y: parentY + NODE_SPACING.vertical,
   };
 }
 
@@ -169,7 +164,7 @@ export function ChatCanvas() {
           target: newNodeId,
           type: "smoothstep",
           animated: false,
-          style: { stroke: "#3b82f6", strokeWidth: 2 },
+          style: EDGE_STYLES.default,
         };
 
         setNodes((prevNodes) => [...prevNodes, newNode]);
@@ -182,8 +177,8 @@ export function ChatCanvas() {
     [nodes, edges, setNodes, setEdges, sendMessage]
   );
 
-  // Initialize with a starter node if empty
-  const initializedNodes = useMemo(() => {
+  // Initialize with a starter node on mount
+  useEffect(() => {
     if (nodes.length === 0) {
       const initialNode: ChatFlowNode = {
         id: generateNodeId(),
@@ -194,15 +189,16 @@ export function ChatCanvas() {
           response: "",
           isLoading: false,
           isInitial: true,
-          onSubmit: handleSubmit,
-          onExpand: handleExpand,
+          onSubmit: () => {},
+          onExpand: () => {},
         },
       };
-      // Use setTimeout to avoid setting state during render
-      setTimeout(() => setNodes([initialNode]), 0);
-      return [initialNode];
+      setNodes([initialNode]);
     }
-    // Update onSubmit and onExpand callbacks for all nodes
+  }, []); // Run once on mount
+
+  // Update callbacks for all nodes when they change
+  const nodesWithCallbacks = useMemo(() => {
     return nodes.map((node) => ({
       ...node,
       data: {
@@ -211,7 +207,7 @@ export function ChatCanvas() {
         onExpand: handleExpand,
       },
     }));
-  }, [nodes, handleSubmit, handleExpand, setNodes]);
+  }, [nodes, handleSubmit, handleExpand]);
 
   // Define custom node types
   const nodeTypes = useMemo(
@@ -228,7 +224,7 @@ export function ChatCanvas() {
           {
             ...connection,
             type: "smoothstep",
-            style: { stroke: "#3b82f6", strokeWidth: 2 },
+            style: EDGE_STYLES.default,
           },
           eds
         )
@@ -254,7 +250,7 @@ export function ChatCanvas() {
         </button>
       </div>
       <ReactFlow
-        nodes={initializedNodes}
+        nodes={nodesWithCallbacks}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -266,7 +262,7 @@ export function ChatCanvas() {
         maxZoom={2}
         defaultEdgeOptions={{
           type: "smoothstep",
-          style: { stroke: "#3b82f6", strokeWidth: 2 },
+          style: EDGE_STYLES.default,
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />

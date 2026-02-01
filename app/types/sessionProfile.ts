@@ -30,18 +30,46 @@ export interface ProfileQuestion {
   options: ProfileQuestionOption[];
 }
 
-/** Multi-select: user picks up to 2. Value is the analogy domain code. */
-export const ANALOGY_OPTIONS: ProfileQuestionOption<string>[] = [
-  { value: "construction", label: "Construction / repair" },
-  { value: "cooking", label: "Cooking / recipes" },
-  { value: "sport", label: "Sport / training" },
-  { value: "business", label: "Business / money" },
-  { value: "medical", label: "Medicine / biology" },
-  { value: "mechanics", label: "Mechanics / tech" },
-  { value: "it", label: "IT / code / networks" },
-  { value: "study", label: "Study / exams" },
-  { value: "art", label: "Art / design" },
-];
+/** Valid analogy domain codes (used when inferring from profession). */
+export const ANALOGY_DOMAIN_CODES = [
+  "construction",
+  "cooking",
+  "sport",
+  "business",
+  "medical",
+  "mechanics",
+  "it",
+  "study",
+  "art",
+] as const;
+
+/** Infer 1–2 analogy_domains from profession/role text. Based on previous answer only. */
+export function inferAnalogyDomainsFromProfession(
+  profession: string | null
+): string[] | null {
+  if (!profession || typeof profession !== "string") return null;
+  const lower = profession.trim().toLowerCase();
+  if (!lower) return null;
+  const matched: string[] = [];
+  const rules: { keywords: string[]; domain: string }[] = [
+    { keywords: ["construction", "builder", "repair", "contractor", "architect", "construction worker"], domain: "construction" },
+    { keywords: ["cook", "chef", "kitchen", "baker", "culinary"], domain: "cooking" },
+    { keywords: ["sport", "athlete", "trainer", "coach", "fitness"], domain: "sport" },
+    { keywords: ["business", "sales", "marketing", "manager", "entrepreneur", "finance"], domain: "business" },
+    { keywords: ["doctor", "medical", "nurse", "health", "biology", "pharma"], domain: "medical" },
+    { keywords: ["mechanic", "engineer", "technical", "machinery"], domain: "mechanics" },
+    { keywords: ["developer", "programmer", "software", "it", "code", "tech", "data"], domain: "it" },
+    { keywords: ["teacher", "student", "study", "academic", "researcher", "professor"], domain: "study" },
+    { keywords: ["artist", "design", "designer", "creative", "art"], domain: "art" },
+  ];
+  for (const { keywords, domain } of rules) {
+    if (keywords.some((k) => lower.includes(k))) {
+      matched.push(domain);
+      if (matched.length >= 2) break;
+    }
+  }
+  return matched.length ? matched : null;
+}
 
 export const PERSONALIZATION_QUESTIONS: ProfileQuestion[] = [
   {
@@ -58,11 +86,6 @@ export const PERSONALIZATION_QUESTIONS: ProfileQuestion[] = [
     id: "profession",
     label: "What do you do? (role or field in 2–6 words, e.g. developer, teacher, student)",
     options: [], // rendered as text input
-  },
-  {
-    id: "analogy_domains",
-    label: "Which analogies work best for you? (pick up to 2)",
-    options: ANALOGY_OPTIONS,
   },
   {
     id: "math_comfort",
