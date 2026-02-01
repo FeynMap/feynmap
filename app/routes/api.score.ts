@@ -27,43 +27,35 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
 
-    const scoringPrompt = `You are a strict teacher evaluating a student's understanding using the Feynman Technique. Be demanding and thorough.
+    const scoringPrompt = `You are a strict but encouraging Feynman teacher. Score how well the student explained in simple terms.
 
 Concept: "${concept}"
-${topic ? `Topic context: "${topic}"` : ""}
+${topic ? `Topic: "${topic}"` : ""}
 
-AI's explanation (what the student was taught):
+What they were taught:
 "${aiExplanation}"
 
-Student's explanation (what they explained back):
+Their explanation:
 "${userExplanation}"
 
-Evaluate the student's explanation STRICTLY and provide:
-1. A score from 0-100 based on these CRITICAL criteria:
-   - Accuracy (30 points): Did they understand the core concept correctly? Are there any misconceptions or errors?
-   - Depth (25 points): Did they go beyond surface-level understanding? Do they show they truly "get it"?
-   - Completeness (25 points): Did they capture ALL key aspects mentioned in the AI explanation? Missing important details reduces score.
-   - Originality (10 points): Did they explain in their own words, not just repeat phrases? Parroting reduces score.
-   - Clarity (10 points): Is their explanation clear, coherent, and well-structured?
+Score 0-100:
+- 85-100: Simple, correct, complete. Rare.
+- 70-84: Good with minor gaps.
+- 50-69: Basic idea but missing key parts or too complex.
+- 30-49: Partial, unclear, or jargon-heavy.
+- 0-29: Wrong or just buzzwords.
 
-2. Brief but specific feedback (2-3 sentences) that:
-   - Points out what they got right
-   - Clearly identifies what's missing or incorrect
-   - Suggests specific improvements
+Feedback rules:
+- 1-2 sentences MAX
+- If good: Say what they got right
+- If gaps: Name the ONE most important thing to fix
+- If jargon: Call out ONE complex word to simplify
+- End with a short question or next step
 
-Scoring guidelines:
-- 90-100: Exceptional understanding - demonstrates deep grasp, all key points covered, original explanation
-- 75-89: Good understanding - core concept correct, most key points covered, some depth
-- 60-74: Adequate understanding - basic concept understood but missing important details or depth
-- 40-59: Partial understanding - some understanding but significant gaps or misconceptions
-- 0-39: Poor understanding - major misconceptions or very superficial grasp
-
-Be STRICT. A score of 100 should be rare and only for truly excellent explanations. Most explanations should score 60-80 unless they demonstrate exceptional understanding.
-
-Return your response as JSON:
+Return JSON:
 {
-  "score": 75,
-  "feedback": "You captured the basic idea correctly, but you're missing the key detail about [specific missing element]. Also, try to explain it in your own words rather than repeating phrases. To improve, focus on [specific suggestion]."
+  "score": 42,
+  "feedback": "You got [X] right. Try explaining [Y] more simply - what does it actually do?"
 }`;
 
     const completion = await openai.chat.completions.create({
@@ -71,7 +63,7 @@ Return your response as JSON:
       messages: [
         {
           role: "system",
-          content: "You are a strict, demanding teacher evaluating student understanding. Be thorough, critical, and specific. Hold students to high standards. Only give high scores (90+) for truly exceptional explanations that demonstrate deep understanding. Be encouraging but honest about gaps.",
+          content: "Strict Feynman scorer. 1-2 sentence feedback only. Be honest but kind. Focus on the ONE thing that matters most.",
         },
         {
           role: "user",

@@ -73,7 +73,7 @@ export function TextInputNode({ data, selected }: TextInputNodeProps) {
               <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1.4s' }}></div>
               <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1.4s' }}></div>
             </div>
-            <span className="text-xs text-gray-600 font-medium animate-pulse">Generating your knowledge map...</span>
+            <span className="text-xs text-gray-600 font-medium animate-pulse">Generating map...</span>
           </div>
         )}
       </form>
