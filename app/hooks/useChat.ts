@@ -1,24 +1,16 @@
 import { useCallback } from "react";
-import type { Node, Edge } from "@xyflow/react";
-import type { ChatNodeData } from "../components/ChatNode";
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface SubConcept {
-  name: string;
-  teaser: string;
-}
-
-type ChatFlowNode = Node<ChatNodeData, "chatNode">;
+import type { Edge } from "@xyflow/react";
+import type { Message, SubConcept, ChatFlowNode } from "../types";
+import { generateNodeId } from "../utils";
+import { EDGE_STYLES, NODE_SPACING } from "../constants";
 
 interface UseChatOptions {
   nodes: ChatFlowNode[];
   edges: Edge[];
   setNodes: React.Dispatch<React.SetStateAction<ChatFlowNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  knownConceptsRef: React.RefObject<Set<string>>;
+  addKnownConcept: (concept: string) => void;
 }
 
 // Parse sub-concepts from streaming text
@@ -28,10 +20,16 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   
   let match;
   while ((match = conceptRegex.exec(text)) !== null) {
-    concepts.push({
-      name: match[1].trim(),
-      teaser: match[2].trim(),
-    });
+    const name = match[1].trim();
+    const teaser = match[2].trim();
+    
+    // Filter out empty or invalid concepts
+    if (name && teaser) {
+      concepts.push({
+        name,
+        teaser,
+      });
+    }
   }
   
   // Remove all concept markers from the display text
@@ -40,13 +38,25 @@ function parseSubConcepts(text: string): { concepts: SubConcept[]; cleanText: st
   return { concepts, cleanText };
 }
 
-// Generate unique IDs for nodes
-let nodeIdCounter = 0;
-function generateNodeId(): string {
-  return `node-${Date.now()}-${++nodeIdCounter}`;
+// Parse feedback and explanation from streaming text when there's a pre-question
+function parseFeedbackAndExplanation(text: string): { 
+  feedback: string; 
+  explanation: string; 
+  hasFeedback: boolean;
+} {
+  const feedbackRegex = /\[\[FEEDBACK\]\]([\s\S]*?)\[\[\/FEEDBACK\]\]/;
+  const match = text.match(feedbackRegex);
+  
+  if (match) {
+    const feedback = match[1].trim();
+    const explanation = text.replace(feedbackRegex, '').trim();
+    return { feedback, explanation, hasFeedback: true };
+  }
+  
+  return { feedback: '', explanation: text, hasFeedback: false };
 }
 
-export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
+export function useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept }: UseChatOptions) {
   // Build conversation history by traversing up the tree from a given node
   const buildConversationHistory = useCallback(
     (nodeId: string): Message[] => {
@@ -79,8 +89,9 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
 
   // Send a message and stream the response
   // parentNodeId is optional - pass it directly to avoid race conditions with edge state
+  // preQuestionAnswer is optional - includes user's prior knowledge for discovery phase
   const sendMessage = useCallback(
-    async (nodeId: string, prompt: string, parentNodeId?: string) => {
+    async (nodeId: string, prompt: string, parentNodeId?: string, preQuestionAnswer?: string) => {
       // Get conversation history from parent nodes (not including current node)
       // Use parentNodeId if provided, otherwise try to find it from edges
       const parentId = parentNodeId ?? edges.find((e) => e.target === nodeId)?.source;
@@ -89,6 +100,10 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
         : [];
 
       try {
+        // Always get the latest known concepts from the ref to avoid stale closure values
+        const currentKnownConcepts = knownConceptsRef.current || new Set();
+        console.log('[useChat] Sending request with known concepts:', Array.from(currentKnownConcepts));
+        
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
@@ -97,6 +112,8 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
           body: JSON.stringify({
             prompt,
             conversationHistory,
+            knownConcepts: Array.from(currentKnownConcepts),
+            preQuestionAnswer,
           }),
         });
 
@@ -122,10 +139,13 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
 
-          // Parse concepts from the accumulated response
-          const { concepts, cleanText } = parseSubConcepts(fullResponse);
+          // Parse feedback and explanation if this was a pre-question response
+          const { feedback, explanation, hasFeedback } = parseFeedbackAndExplanation(fullResponse);
+          
+          // Parse concepts from the explanation text (not from feedback)
+          const { concepts, cleanText } = parseSubConcepts(explanation);
 
-          // Update node with cleaned response
+          // Update node with cleaned response and feedback
           setNodes((prevNodes) =>
             prevNodes.map((node) =>
               node.id === nodeId
@@ -134,6 +154,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                     data: {
                       ...node.data,
                       response: cleanText,
+                      priorKnowledgeFeedback: hasFeedback ? feedback : node.data.priorKnowledgeFeedback,
                     },
                   }
                 : node
@@ -145,6 +166,38 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
             const newConcepts = concepts.slice(lastConceptCount);
             lastConceptCount = concepts.length;
 
+            // Helper to normalize concept for comparison
+            const normalizeConcept = (name: string) => 
+              name.toLowerCase().replace(/\s+/g, ' ').trim();
+
+            // Get current known concepts for filtering
+            const currentKnown = knownConceptsRef.current || new Set();
+
+            // Validate concepts before adding - only check for exact duplicates
+            const validConcepts = newConcepts.filter((concept) => {
+              if (!concept.name || !concept.teaser) {
+                return false;
+              }
+
+              const normalized = normalizeConcept(concept.name);
+              
+              // Check if concept is already known (exact match only)
+              if (currentKnown.has(normalized)) {
+                console.log('[useChat] Skipping duplicate concept:', concept.name);
+                return false;
+              }
+
+              return true;
+            });
+
+            if (validConcepts.length === 0) continue; // Skip if no valid concepts
+
+            // Add concepts to the global map
+            validConcepts.forEach((concept) => {
+              console.log('[useChat] Adding concept to known list:', concept.name);
+              addKnownConcept(concept.name);
+            });
+
             // Create nodes and edges together to avoid race conditions
             const newNodeIds: string[] = [];
 
@@ -154,21 +207,18 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
 
               const newNodes: ChatFlowNode[] = [];
 
-              newConcepts.forEach((concept, index) => {
+              validConcepts.forEach((concept, index) => {
                 const childNodeId = generateNodeId();
                 newNodeIds.push(childNodeId);
                 // Use childrenCreated counter for positioning to avoid race conditions
                 const childIndex = childrenCreated + index;
-
-                // Position nodes in a vertical column below parent
-                const verticalSpacing = 300;
 
                 newNodes.push({
                   id: childNodeId,
                   type: "chatNode",
                   position: {
                     x: currentNode.position.x,
-                    y: currentNode.position.y + (childIndex + 1) * verticalSpacing,
+                    y: currentNode.position.y + (childIndex + 1) * NODE_SPACING.conceptVertical,
                   },
                   data: {
                     prompt: `Explain ${concept.name}`,
@@ -178,14 +228,12 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                     isLoading: false,
                     isSubConcept: true,
                     expanded: false,
-                    onSubmit: () => {}, // Will be set by ChatCanvas
-                    onExpand: () => {}, // Will be set by ChatCanvas
                   },
                 });
               });
 
               // Update counter for next batch
-              childrenCreated += newConcepts.length;
+              childrenCreated += validConcepts.length;
 
               return [...prevNodes, ...newNodes];
             });
@@ -198,7 +246,7 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
                 target: childNodeId,
                 type: "smoothstep",
                 animated: false,
-                style: { stroke: "#10b981", strokeWidth: 2 },
+                style: EDGE_STYLES.concept,
               }));
 
               return [...prevEdges, ...newEdges];
@@ -239,8 +287,8 @@ export function useChat({ nodes, edges, setNodes, setEdges }: UseChatOptions) {
         );
       }
     },
-    [edges, buildConversationHistory, setNodes, setEdges]
+    [edges, buildConversationHistory, setNodes, setEdges, knownConceptsRef, addKnownConcept]
   );
 
-  return { sendMessage, buildConversationHistory };
+  return { sendMessage };
 }

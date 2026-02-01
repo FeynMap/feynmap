@@ -20,6 +20,9 @@ importers:
       compression:
         specifier: ^1.8.0
         version: 1.8.1
+      d3-hierarchy:
+        specifier: ^3.1.2
+        version: 3.1.2
       drizzle-orm:
         specifier: ~0.36.3
         version: 0.36.4(@types/pg@8.16.0)(@types/react@19.2.10)(postgres@3.4.8)(react@19.2.4)
@@ -1294,6 +1297,10 @@ packages:
 
   d3-ease@3.0.1:
     resolution: {integrity: sha512-wR/XK3D3XcLIZwpbvQwQ5fK+8Ykds1ip7A2Txe0yxncXSdq1L9skcG7blcedkOX+ZcgxGAmLX1FrRGbADwzi0w==}
+    engines: {node: '>=12'}
+
+  d3-hierarchy@3.1.2:
+    resolution: {integrity: sha512-FX/9frcub54beBdugHjDCdikxThEqjnR93Qt7PvQTOHxyiNCAlvMrHhclk3cD5VeAaq9fxmfRp+CnWw9rEMBuA==}
     engines: {node: '>=12'}
 
   d3-interpolate@3.0.1:
@@ -3101,6 +3108,8 @@ snapshots:
       d3-selection: 3.0.0
 
   d3-ease@3.0.1: {}
+
+  d3-hierarchy@3.1.2: {}
 
   d3-interpolate@3.0.1:
     dependencies:
