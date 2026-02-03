@@ -1,5 +1,28 @@
 /* Game Mode Styles - React Flow animations and customizations */
 
+/* Chat list scroll panel - Game mode style (#343541, #40414f, #565869) */
+.chat-list-scroll-game {
+  scrollbar-color: #565869 #343541;
+  scrollbar-width: thin;
+}
+.chat-list-scroll-game::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-list-scroll-game::-webkit-scrollbar-track {
+  background: #343541;
+  border-radius: 4px;
+}
+.chat-list-scroll-game::-webkit-scrollbar-thumb {
+  background: #565869;
+  border-radius: 4px;
+}
+.chat-list-scroll-game::-webkit-scrollbar-thumb:hover {
+  background: #6e6f7f;
+}
+.chat-list-scroll-game::-webkit-scrollbar-corner {
+  background: #343541;
+}
+
 /* Animated dashed edges - dashes flow along the path */
 @keyframes dash-flow {
   from {

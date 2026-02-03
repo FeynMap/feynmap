@@ -4,6 +4,9 @@ export default [
   // Redirect root to expert mode
   index("routes/index.tsx"),
   
+  // Legacy: /canvas redirects to /expert
+  route("canvas", "routes/canvas.redirect.tsx"),
+  
   // Mode layout wrapping game and expert routes
   layout("mode-layout.tsx", [
     route("game", "routes/game.tsx"),

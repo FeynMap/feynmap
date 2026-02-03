@@ -20,6 +20,8 @@ import { FloatingConnectionLine } from "./FloatingConnectionLine";
 import { GroupNode } from "./GroupNode";
 import { ConceptChat, type ChatMessage } from "./ConceptChat";
 import { resolveCollisions, resolveNewNodeCollisions } from "../utils/resolve-collisions";
+import type { GameSession } from "../utils/game-storage";
+import type { ChatListItem } from "./ChatListPanel";
 
 // Types for expected sub-concepts (pre-generated curriculum)
 export type ExpectedSubconcept = {
@@ -193,9 +195,8 @@ function ConceptNodeComponent({ id, data, selected }: { id: string; data: Concep
   );
 }
 
-// Initial state: empty canvas
-const initialNodes: Node[] = [];
-const initialEdges: Edge[] = [];
+const emptyNodes: Node[] = [];
+const emptyEdges: Edge[] = [];
 
 const nodeTypes: Record<string, React.ComponentType<any>> = {
   concept: ConceptNodeComponent,
@@ -206,19 +207,40 @@ const edgeTypes: Record<string, React.ComponentType<any>> = {
   floating: FloatingEdge,
 };
 
-function CanvasContent() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+interface CanvasContentProps {
+  initialSession?: GameSession | null;
+  onSessionChange?: (session: GameSession) => void;
+  chatList?: ConceptCanvasChatListProps | null;
+}
+
+function CanvasContent({
+  initialSession,
+  onSessionChange,
+  chatList,
+}: CanvasContentProps = {}) {
+  const hasInitialSession =
+    initialSession &&
+    Array.isArray(initialSession.nodes) &&
+    initialSession.nodes.length > 0;
+  const initialNodes = hasInitialSession ? initialSession!.nodes : emptyNodes;
+  const initialEdges = hasInitialSession ? initialSession!.edges : emptyEdges;
+  const initialTopic = hasInitialSession ? initialSession!.currentTopic ?? null : null;
+  const initialActiveConcept = hasInitialSession ? initialSession!.activeConcept ?? null : null;
+  const initialChatMessages = hasInitialSession ? (initialSession!.chatMessages as ChatMessage[]) : [];
+  const initialReadyToExplain = !!initialActiveConcept;
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes as ConceptNode[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges as ConceptEdge[]);
   const reactFlowInstance = useReactFlow();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  const [currentTopic, setCurrentTopic] = useState<string | null>(initialTopic);
   const [activeConcept, setActiveConcept] = useState<{
     id: string;
     name: string;
-  } | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  } | null>(initialActiveConcept);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isReadyToExplain, setIsReadyToExplain] = useState(false);
+  const [isReadyToExplain, setIsReadyToExplain] = useState(initialReadyToExplain);
   const currentTopicRef = useRef<string>("");
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -237,6 +259,34 @@ function CanvasContent() {
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  // Persist session to parent (debounced)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!onSessionChange) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      const serializableMessages = chatMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.conceptId != null && { conceptId: m.conceptId }),
+        ...(m.score != null && { score: m.score }),
+        ...(m.feedback != null && { feedback: m.feedback }),
+        isLoading: false,
+      }));
+      onSessionChange({
+        nodes: nodes as GameSession["nodes"],
+        edges: edges as GameSession["edges"],
+        currentTopic,
+        chatMessages: serializableMessages,
+        activeConcept,
+      });
+    }, 400);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [nodes, edges, currentTopic, chatMessages, activeConcept, onSessionChange]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -536,6 +586,20 @@ function CanvasContent() {
   useEffect(() => {
     handleConceptClickRef.current = handleConceptClick;
   }, [handleConceptClick]);
+
+  // Inject onExplain into restored nodes (they don't have it from storage)
+  const needsOnExplain =
+    nodes.length > 0 &&
+    (nodes[0].data as ConceptNodeData).onExplain === undefined;
+  useEffect(() => {
+    if (!needsOnExplain || !handleConceptClick) return;
+    setNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        data: { ...n.data, onExplain: handleConceptClick },
+      }))
+    );
+  }, [needsOnExplain, handleConceptClick, setNodes]);
 
   // Helper function to normalize labels for duplicate detection
   const normalizeLabel = useCallback((label: string) => {
@@ -1565,8 +1629,8 @@ function CanvasContent() {
 
   return (
     <div className="w-full h-screen flex bg-[#343541]">
-      {/* Left pane: Chat (1/3 width) */}
-      <div className="w-1/3 flex-shrink-0">
+      {/* Left pane: ConceptChat (chat list with scroll, no collapse in Game) */}
+      <div className="w-1/3 flex-shrink-0 flex flex-col min-h-0 bg-[#343541] border-r border-[#565869]">
         <ConceptChat
           topic={currentTopic}
           onTopicSubmit={handleTopicSubmit}
@@ -1577,10 +1641,11 @@ function CanvasContent() {
           nextConceptSuggestion={nextConceptSuggestion}
           onLearnNext={handleLearnNext}
           isReadyToExplain={isReadyToExplain}
+          chatList={chatList ?? undefined}
         />
       </div>
 
-      {/* Right pane: Canvas (2/3 width) */}
+      {/* Right pane: Canvas */}
       <div className="flex-1 relative bg-[#343541]">
         <ReactFlow
           nodes={nodes}
@@ -1734,7 +1799,17 @@ function calculateHierarchicalLayout(
   return positionedNodes;
 }
 
-export function ConceptCanvas() {
+export interface ConceptCanvasProps {
+  initialSession?: GameSession | null;
+  onSessionChange?: (session: GameSession) => void;
+  chatList?: ConceptCanvasChatListProps | null;
+}
+
+export function ConceptCanvas({
+  initialSession,
+  onSessionChange,
+  chatList,
+}: ConceptCanvasProps = {}) {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -1751,7 +1826,11 @@ export function ConceptCanvas() {
 
   return (
     <ReactFlowProvider>
-      <CanvasContent />
+      <CanvasContent
+        initialSession={initialSession}
+        onSessionChange={onSessionChange}
+        chatList={chatList}
+      />
     </ReactFlowProvider>
   );
 }

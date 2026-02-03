@@ -5,7 +5,6 @@ import {
   Controls,
   Background,
   BackgroundVariant,
-  Panel,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -25,6 +24,7 @@ import { generateNodeId } from "../utils";
 import { EDGE_STYLES } from "../constants";
 import { ChatCallbackContext } from "../contexts/ChatCallbackContext";
 import type { ChatFlowNode, ChatCallbacks } from "../types";
+import type { ExpertSession } from "../utils/expert-storage";
 
 // Define outside component to prevent re-creation on renders
 const nodeTypes = { chatNode: ChatNode };
@@ -203,21 +203,13 @@ const getLayoutedElements = (
   }
 };
 
-// Generate initial node ID once at module level to avoid regenerating on re-renders
-const initialNodeId = generateNodeId();
-
-// Default node width for initial positioning (before DOM measurement)
 const DEFAULT_NODE_WIDTH = 840;
 
-function ChatCanvasInner() {
-  // State for session manager panel
-  const [isSessionPanelOpen, setIsSessionPanelOpen] = useState(false);
-  
-  // Initialize with starter node inline instead of useEffect
-  // Position it centered at x=0 (matching the layout algorithm)
-  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>([
+function getDefaultInitialNodes(): ChatFlowNode[] {
+  const id = generateNodeId();
+  return [
     {
-      id: initialNodeId,
+      id,
       type: "chatNode",
       position: { x: -DEFAULT_NODE_WIDTH / 2, y: 50 },
       data: {
@@ -227,13 +219,31 @@ function ChatCanvasInner() {
         isInitial: true,
       },
     },
-  ]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  ];
+}
+
+interface ChatCanvasInnerProps {
+  initialSession?: ExpertSession | null;
+  onSessionChange?: (session: ExpertSession) => void;
+}
+
+function ChatCanvasInner({ initialSession, onSessionChange }: ChatCanvasInnerProps) {
+  const defaultInitial = useMemo(() => getDefaultInitialNodes(), []);
+  const initialNodes = initialSession?.nodes?.length
+    ? initialSession.nodes
+    : defaultInitial;
+  const initialEdges = initialSession?.edges ?? [];
+  const initialKnownConcepts = initialSession?.knownConcepts?.length
+    ? new Set(initialSession.knownConcepts)
+    : new Set<string>();
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<ChatFlowNode>(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges);
   const { fitView } = useReactFlow();
   const layoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Global concept map to track all concepts added to the canvas
-  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(new Set());
+  const [knownConcepts, setKnownConcepts] = useState<Set<string>>(initialKnownConcepts);
+  const [isSessionPanelOpen, setIsSessionPanelOpen] = useState(false);
   
   // Session persistence - this will auto-save and load sessions
   const {
@@ -285,93 +295,25 @@ function ChatCanvasInner() {
     edgesRef.current = edges;
   }, [nodes, edges]);
 
-  // Callback to auto-rename session when LLM generates a title
-  const handleTitleGenerated = useCallback((title: string) => {
-    if (activeSessionId) {
-      console.log(`[ChatCanvas] Auto-renaming session to: ${title}`);
-      renameSession(activeSessionId, title);
-    }
-  }, [activeSessionId, renameSession]);
-  
-  const { sendMessage } = useChat({ 
-    nodes, 
-    edges, 
-    setNodes, 
-    setEdges, 
-    knownConceptsRef, 
-    addKnownConcept,
-    onTitleGenerated: handleTitleGenerated,
-  });
-  
-  // Reset resume tracker when switching sessions and fit view
+  // Persist session to parent (debounced)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    hasResumedRef.current = false;
-    
-    // Fit view after session loads (small delay to ensure nodes are rendered)
-    const timer = setTimeout(() => {
-      fitView({ duration: 300 });
-    }, 150);
-    
-    return () => clearTimeout(timer);
-  }, [activeSessionId, fitView]);
-  
-  // Auto-resume incomplete messages after page refresh or session load
-  // This handles the case where user asks a question but page refreshes before AI responds
-  useEffect(() => {
-    // Only run once per session load
-    if (hasResumedRef.current) return;
-    
-    // Wait a tick to ensure session is fully loaded
-    const timer = setTimeout(() => {
-      // Find nodes that have a prompt but no response (incomplete conversations)
-      const incompleteNodes = nodes.filter(node => {
-        // Must have a prompt
-        if (!node.data.prompt) return false;
-        
-        // Must not have a response
-        if (node.data.response) return false;
-        
-        // Must not be loading (already being processed)
-        if (node.data.isLoading) return false;
-        
-        // Skip initial empty nodes
-        if (node.data.isInitial && !node.data.prompt) return false;
-        
-        // Skip unexpanded concept nodes
-        if (node.data.isSubConcept && !node.data.expanded) return false;
-        
-        // Skip nodes awaiting pre-question (user needs to answer first)
-        if (node.data.awaitingPreQuestion) return false;
-        
-        return true;
+    if (!onSessionChange) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      onSessionChange({
+        nodes,
+        edges,
+        knownConcepts: Array.from(knownConcepts),
       });
-      
-      if (incompleteNodes.length > 0) {
-        console.log(`[ChatCanvas] Auto-resuming ${incompleteNodes.length} incomplete conversation(s)`);
-        hasResumedRef.current = true;
-        
-        // Set all incomplete nodes to loading state first
-        setNodes((prevNodes) =>
-          prevNodes.map((node) =>
-            incompleteNodes.some(incomplete => incomplete.id === node.id)
-              ? { ...node, data: { ...node.data, isLoading: true } }
-              : node
-          )
-        );
-        
-        // Trigger sendMessage for each incomplete node
-        incompleteNodes.forEach((node) => {
-          // Find parent node for conversation context
-          const parentEdge = edges.find(e => e.target === node.id);
-          const parentId = parentEdge?.source;
-          
-          sendMessage(node.id, node.data.prompt, parentId, node.data.preQuestionAnswer);
-        });
-      }
-    }, 100); // Small delay to ensure session load is complete
-    
-    return () => clearTimeout(timer);
-  }, [nodes, edges, sendMessage, setNodes, activeSessionId]);
+    }, 400);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [nodes, edges, knownConcepts, onSessionChange]);
+
+  const { sendMessage } = useChat({ nodes, edges, setNodes, setEdges, knownConceptsRef, addKnownConcept });
 
   // Simple function to apply layout - reads from refs to avoid stale closures
   const doLayout = useCallback(() => {
@@ -658,10 +600,18 @@ function ChatCanvasInner() {
   );
 }
 
-export function ChatCanvas() {
+export interface ChatCanvasProps {
+  initialSession?: ExpertSession | null;
+  onSessionChange?: (session: ExpertSession) => void;
+}
+
+export function ChatCanvas({ initialSession, onSessionChange }: ChatCanvasProps = {}) {
   return (
     <ReactFlowProvider>
-      <ChatCanvasInner />
+      <ChatCanvasInner
+        initialSession={initialSession}
+        onSessionChange={onSessionChange}
+      />
     </ReactFlowProvider>
   );
 }
